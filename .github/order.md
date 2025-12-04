@@ -1,0 +1,4 @@
+现在进行阶段汇总
+1.根据此次全部对话和阶段开发按相关文档内容原格式更新COMPLETE_DOCUMENTATION，DEVELOPMENT_LOG，DEVELOPMENT_RULES，TEST_SUMMARY 四个文档。
+2..github下的所有文档和这四个文档不要删除，其余的全部删除。
+3.删除冗余代码和代码文件，测试文件等
