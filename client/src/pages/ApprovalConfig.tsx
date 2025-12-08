@@ -334,6 +334,36 @@ export default function ApprovalConfigPage() {
                </h3>
              </CardHeader>
              <CardContent className="space-y-5">
+               <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                     <Label>超时未签到自动取消</Label>
+                     <Switch 
+                       checked={formData.autoCancelHours > 0} 
+                       onCheckedChange={(c: boolean) => setFormData({...formData, autoCancelHours: c ? 1 : 0})}
+                     />
+                  </div>
+                  
+                  {formData.autoCancelHours > 0 && (
+                    <div className="bg-amber-50 p-3 rounded-lg border border-amber-100 animate-in fade-in slide-in-from-top-1">
+                      <div className="flex items-center gap-2 mb-2">
+                        <AlertCircle className="h-4 w-4 text-amber-600" />
+                        <span className="text-xs font-semibold text-amber-700">配置超时时间</span>
+                      </div>
+                      <div className="relative">
+                        <Input 
+                           type="number" 
+                           min={0.5}
+                           step={0.5}
+                           value={formData.autoCancelHours}
+                           onChange={(e: any) => setFormData({...formData, autoCancelHours: Number(e.target.value)})}
+                           className="bg-white border-amber-200 focus:ring-amber-500 pr-12 h-8 text-xs"
+                        />
+                        <span className="absolute right-3 top-2 text-xs text-slate-400">小时</span>
+                      </div>
+                    </div>
+                  )}
+               </div>
+               
                <div className="bg-indigo-50 rounded-lg p-3">
                   <h4 className="text-xs font-bold text-indigo-800 mb-1 flex items-center gap-1">
                     <LayoutTemplate className="h-3 w-3" />
@@ -341,7 +371,7 @@ export default function ApprovalConfigPage() {
                   </h4>
                   <p className="text-[10px] text-indigo-600 leading-relaxed">
                     当前规则适用于 {isGlobal ? "所有未单独配置的实验室" : `实验室 #${selectedLabId}`}。
-                    审批流程共 {formData.enableMultiLevel} 级。
+                    审批流程共 {formData.enableMultiLevel} 级{formData.autoCancelHours > 0 ? `，超时 ${formData.autoCancelHours} 小时自动取消` : ""}。
                   </p>
                </div>
              </CardContent>
