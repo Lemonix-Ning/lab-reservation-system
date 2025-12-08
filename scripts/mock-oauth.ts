@@ -9,6 +9,16 @@ const MOCK_EMAIL = process.env.MOCK_EMAIL || "admin@example.com";
 const MOCK_ACCESS_TOKEN = process.env.MOCK_ACCESS_TOKEN || "mock-access-token";
 const CLIENT_ID = process.env.OAUTH_CLIENT_ID || "local-client-id";
 
+// 默认角色映射（旧系统兼容性）
+const ROLE_MAPPING: Record<string, string> = {
+  'admin': 'sysAdmin',
+  'user': 'student',
+  'student': 'student',
+  'teacher': 'teacher',
+  'labAdmin': 'labAdmin',
+  'sysAdmin': 'sysAdmin',
+};
+
 app.use(cors());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
@@ -21,6 +31,12 @@ app.get("/oauth/authorize", (req, res) => {
   if (openid) process.env.MOCK_OPEN_ID = openid;
   if (name) process.env.MOCK_NAME = name;
   if (email) process.env.MOCK_EMAIL = email;
+  
+  // 处理角色映射（支持新的四层角色系统）
+  if (role) {
+    const mappedRole = ROLE_MAPPING[role] || role;
+    process.env.MOCK_ROLE = mappedRole;
+  }
 
   // 如果没有 redirect_uri，使用默认值
   const finalRedirectUri = redirect_uri || "http://localhost:3001/api/oauth/callback";
@@ -64,10 +80,12 @@ app.get("/oauth/userinfo", (_req, res) => {
     name: process.env.MOCK_NAME || MOCK_NAME,
     email: process.env.MOCK_EMAIL || MOCK_EMAIL,
     loginMethod: "mock",
+    role: process.env.MOCK_ROLE || "student",
   });
 });
 
 app.listen(PORT, () => {
   console.log(`[Mock OAuth] listening on http://localhost:${PORT}`);
+  console.log(`[Mock OAuth] Supports new role system: student, teacher, labAdmin, sysAdmin`);
 });
 

@@ -14,8 +14,10 @@
     "mock:oauth": "tsx scripts/mock-oauth.ts",
     "client:dev": "vite dev",
     "seed": "tsx scripts/seed-data.ts",
+    "seed:comprehensive": "tsx scripts/seed-comprehensive.ts",
     "seed:phase4": "tsx scripts/seed-phase4-data.ts",
-    "create:violation-users": "tsx scripts/create-violation-users.ts"
+    "create:violation-users": "tsx scripts/create-violation-users.ts",
+    "db:reset": "tsx scripts/fix-role-enum.ts && tsx scripts/seed-comprehensive.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.693.0",

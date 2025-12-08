@@ -28,13 +28,25 @@ export function registerOAuthRoutes(app: Express) {
     }
 
     try {
+      console.log("[OAuth] Starting callback with code:", code, "state:", state);
+      
       const tokenResponse = await sdk.exchangeCodeForToken(code, state);
+      console.log("[OAuth] Got token:", tokenResponse.accessToken);
+      
       const userInfo = await sdk.getUserInfo(tokenResponse.accessToken);
+      console.log("[OAuth] Got userInfo:", JSON.stringify(userInfo));
 
       if (!userInfo.openId) {
+        console.error("[OAuth] Missing openId in userInfo");
         res.status(400).json({ error: "openId missing from user info" });
         return;
       }
+
+      // 验证角色类型
+      const validRoles = ['student', 'teacher', 'labAdmin', 'sysAdmin'];
+      const role = userInfo.role && validRoles.includes(userInfo.role) ? userInfo.role as 'student' | 'teacher' | 'labAdmin' | 'sysAdmin' : undefined;
+      
+      console.log("[OAuth] User role:", userInfo.role, "-> validated role:", role);
 
       await db.upsertUser({
         openId: userInfo.openId,
@@ -42,7 +54,10 @@ export function registerOAuthRoutes(app: Express) {
         email: userInfo.email ?? null,
         loginMethod: userInfo.loginMethod ?? userInfo.platform ?? null,
         lastSignedIn: new Date(),
+        role: role,
       });
+
+      console.log("[OAuth] User upserted successfully");
 
       const sessionToken = await sdk.createSessionToken(userInfo.openId, {
         name: userInfo.name || "",
@@ -52,6 +67,7 @@ export function registerOAuthRoutes(app: Express) {
       const cookieOptions = getSessionCookieOptions(req);
       res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
 
+      console.log("[OAuth] Session cookie set, redirecting to /");
       res.redirect(302, "/");
     } catch (error) {
       console.error("[OAuth] Callback failed", error);

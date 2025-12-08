@@ -23,6 +23,7 @@ type OAuthUserInfo = {
   email?: string | null;
   loginMethod?: string | null;
   platform?: string | null;
+  role?: string | null;
 };
 
 const isNonEmptyString = (value: unknown): value is string =>
@@ -86,6 +87,7 @@ class OAuthService {
       email: data.email ?? null,
       loginMethod: data.loginMethod ?? data.platform ?? null,
       platform: data.platform ?? null,
+      role: data.role ?? null,
     };
   }
 }

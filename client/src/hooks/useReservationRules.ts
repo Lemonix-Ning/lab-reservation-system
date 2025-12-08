@@ -49,6 +49,13 @@ export function useReservationRules() {
     }
   }, [preCheckResult]);
 
+  // 当预检查参数清除时，也清除错误信息
+  useEffect(() => {
+    if (!preCheckParams) {
+      setErrorMessage("");
+    }
+  }, [preCheckParams]);
+
   /**
    * 格式化规则为人类可读的文本
    */

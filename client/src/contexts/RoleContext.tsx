@@ -1,26 +1,43 @@
 import { createContext, useContext, useState, ReactNode } from 'react';
 import { useAuth } from '@/_core/hooks/useAuth';
 
+type UserRole = 'student' | 'teacher' | 'labAdmin' | 'sysAdmin';
+
 type RoleContextType = {
-  devRole: 'admin' | 'student' | null;
-  setDevRole: (role: 'admin' | 'student' | null) => void;
-  currentRole: 'admin' | 'student' | 'user';
+  devRole: UserRole | null;
+  setDevRole: (role: UserRole | null) => void;
+  currentRole: UserRole;
   isAdmin: boolean;
+  isTeacher: boolean;
+  isLabAdmin: boolean;
+  isSysAdmin: boolean;
 };
 
 const RoleContext = createContext<RoleContextType | undefined>(undefined);
 
 export function RoleProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
-  const [devRole, setDevRole] = useState<'admin' | 'student' | null>(null);
+  const [devRole, setDevRole] = useState<UserRole | null>(null);
   
-  // 映射 user role 到 student
-  const userRole = user?.role === 'user' ? 'student' : (user?.role as 'admin' | 'student' || 'student');
-  const currentRole = devRole || userRole || 'student';
-  const isAdmin = currentRole === 'admin';
+  // 处理旧数据兼容性：admin -> sysAdmin, user -> student
+  const normalizeRole = (role?: string): UserRole => {
+    if (!role) return 'student';
+    if (role === 'admin') return 'sysAdmin';
+    if (role === 'user') return 'student';
+    return (role as UserRole) || 'student';
+  };
+  
+  const userRole = normalizeRole(user?.role);
+  const currentRole = devRole || userRole;
+  
+  const isSysAdmin = currentRole === 'sysAdmin';
+  const isLabAdmin = currentRole === 'labAdmin';
+  const isTeacher = currentRole === 'teacher';
+  const isStudent = currentRole === 'student';
+  const isAdmin = isSysAdmin || isLabAdmin; // admin 代表任何管理角色
 
   return (
-    <RoleContext.Provider value={{ devRole, setDevRole, currentRole, isAdmin }}>
+    <RoleContext.Provider value={{ devRole, setDevRole, currentRole, isAdmin, isTeacher, isLabAdmin, isSysAdmin }}>
       {children}
     </RoleContext.Provider>
   );

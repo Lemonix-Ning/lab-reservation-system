@@ -1,367 +1,379 @@
-import { useState } from "react";
-import { BaseCard } from "@/components/ui/base-card";
-import { StatusBadge } from "@/components/ui/status-badge";
+﻿import { useMemo, useState, type ElementType } from "react";
+import {
+  AlertTriangle,
+  Ban,
+  ShieldAlert,
+  Trash2,
+  UserX,
+  Search,
+  Clock,
+  AlertCircle,
+  Gavel,
+  History,
+  Info,
+} from "lucide-react";
+import { format } from "date-fns";
+import { zhCN } from "date-fns/locale";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { cn } from "@/lib/utils";
 import { trpc } from "@/lib/trpc";
-import { AlertTriangle, Ban, ShieldAlert, Trash2, UserX } from "lucide-react";
 import { toast } from "sonner";
-import { format } from "date-fns";
-import { zhCN } from "date-fns/locale";
+
+const violationTypeMap: Record<string, { label: string; icon: ElementType; color: string; bg: string }> = {
+  no_show: { label: "未签到", icon: UserX, color: "text-rose-600", bg: "bg-rose-50" },
+  late_cancel: { label: "迟到取消", icon: Clock, color: "text-amber-600", bg: "bg-amber-50" },
+  damage: { label: "设备损坏", icon: ShieldAlert, color: "text-purple-600", bg: "bg-purple-50" },
+  other: { label: "违反规则", icon: Ban, color: "text-slate-600", bg: "bg-slate-50" },
+};
+
+const restrictionTypeMap: Record<string, string> = {
+  time_limit: "禁止预约 (7天)",
+  resource_limit: "限制高配设备",
+};
 
 export default function ViolationManagePage() {
   const [searchUserId, setSearchUserId] = useState("");
+  const [selectedClassId, setSelectedClassId] = useState<string>("all");
   const [selectedBlacklist, setSelectedBlacklist] = useState<any>(null);
   const [isRemoveDialogOpen, setIsRemoveDialogOpen] = useState(false);
 
-  // 查询违约记录 - 管理员查看所有记录
-  const { data: violations = [], refetch: refetchViolations } =
-    trpc.violation.getAllRecords.useQuery();
+  const { data: violations = [], refetch: refetchViolations } = trpc.violation.getAllRecords.useQuery();
+  const { data: blacklistData = [], refetch: refetchBlacklist } = trpc.violation.getAllBlacklist.useQuery();
+  const { data: classList = [] } = trpc.class.list.useQuery();
 
-  // 查询黑名单 - 查询所有黑名单用户
-  const { data: blacklistData = [], refetch: refetchBlacklist } =
-    trpc.audit.getLogs.useQuery({
-      operationType: "blacklist_add",
-      limit: 100,
-    });
-
-  // 移除黑名单
   const removeBlacklist = trpc.violation.removeBlacklist.useMutation({
     onSuccess: () => {
-      toast.success("移除成功 - 已将用户从黑名单中移除");
+      toast.success("移除成功");
       refetchBlacklist();
       setIsRemoveDialogOpen(false);
       setSelectedBlacklist(null);
     },
-    onError: (error) => {
-      toast.error(`移除失败 - ${error.message}`);
-    },
+    onError: (error) => toast.error(error.message),
   });
 
-  const handleRemoveBlacklist = () => {
-    if (selectedBlacklist) {
-      removeBlacklist.mutate({ userId: selectedBlacklist.targetId });
+  const filteredViolations = useMemo(() => {
+    let list = violations;
+    if (selectedClassId !== "all") {
+      list = list.filter((v: any) => `${v.classId ?? ""}` === selectedClassId);
     }
-  };
+    if (searchUserId) {
+      list = list.filter(
+        (v: any) => v.userId?.toString().includes(searchUserId) || v.userName?.includes(searchUserId)
+      );
+    }
+    return list;
+  }, [violations, searchUserId, selectedClassId]);
 
-  // 违约类型映射
-  const violationTypeMap: Record<string, { label: string; icon: any }> = {
-    no_show: { label: "未签到", icon: UserX },
-    late_cancel: { label: "迟到取消", icon: AlertTriangle },
-    damage: { label: "设备损坏", icon: ShieldAlert },
-    违反规则: { label: "违反规则", icon: Ban },
-  };
+  const totalPoints = useMemo(
+    () => violations.reduce((sum: number, v: any) => sum + (v.points || 0), 0),
+    [violations]
+  );
 
-  // 限制类型映射
-  const restrictionTypeMap: Record<string, string> = {
-    time_limit: "时间限制",
-    resource_limit: "资源限制",
+  const filteredBlacklist = useMemo(() => {
+    if (selectedClassId === "all") return blacklistData;
+    return blacklistData.filter((item: any) => `${item.classId ?? ""}` === selectedClassId);
+  }, [blacklistData, selectedClassId]);
+
+  const handleRemoveBlacklist = () => {
+    if (!selectedBlacklist) return;
+    removeBlacklist.mutate({ userId: selectedBlacklist.userId });
   };
 
   return (
-    <div className="p-6 space-y-6 bg-gray-50 min-h-screen">
-      {/* 页面标题 */}
-      <div>
-        <h1 className="text-3xl font-bold text-gray-900">违约与黑名单管理</h1>
-        <p className="text-sm text-gray-500 mt-1">
-          查看违约记录、管理用户黑名单状态
-        </p>
+    <div className="min-h-screen bg-slate-50/50 p-6 space-y-8 font-sans text-slate-900">
+      <div className="flex flex-col gap-2">
+        <h1 className="text-2xl font-bold tracking-tight text-slate-900 flex items-center gap-2">
+          <Gavel className="h-6 w-6 text-rose-600" /> 违约与黑名单管理
+        </h1>
+        <p className="text-slate-500 text-sm">维护实验室秩序，管理违规记录及用户处罚状态。</p>
       </div>
 
-      {/* 统计卡片 */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <BaseCard className="hover:shadow-md transition-shadow">
-          <div className="flex items-center gap-4">
-            <div className="p-3 bg-red-100 rounded-lg">
-              <AlertTriangle className="h-6 w-6 text-red-600" />
-            </div>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <Card className="border-l-4 border-l-rose-500 shadow-sm hover:shadow-md transition-all">
+          <CardContent className="p-6 flex items-center justify-between">
             <div>
-              <p className="text-xs text-gray-500">总违约记录</p>
-              <p className="text-3xl font-bold text-gray-900">{violations.length}</p>
-            </div>
-          </div>
-        </BaseCard>
-
-        <BaseCard className="hover:shadow-md transition-shadow">
-          <div className="flex items-center gap-4">
-            <div className="p-3 bg-amber-100 rounded-lg">
-              <Ban className="h-6 w-6 text-amber-600" />
-            </div>
-            <div>
-              <p className="text-xs text-gray-500">黑名单用户</p>
-              <p className="text-3xl font-bold text-gray-900">{blacklistData.length}</p>
-            </div>
-          </div>
-        </BaseCard>
-
-        <BaseCard className="hover:shadow-md transition-shadow">
-          <div className="flex items-center gap-4">
-            <div className="p-3 bg-blue-100 rounded-lg">
-              <ShieldAlert className="h-6 w-6 text-blue-600" />
-            </div>
-            <div>
-              <p className="text-xs text-gray-500">总违约积分</p>
-              <p className="text-3xl font-bold text-gray-900">
-                {violations.reduce((sum, v) => sum + (v.points || 0), 0)}
+              <p className="text-sm font-medium text-slate-500 mb-1">总违约记录</p>
+              <h2 className="text-3xl font-bold text-slate-900">{violations.length}</h2>
+              <p className="text-xs text-rose-600 mt-1 flex items-center gap-1">
+                <AlertCircle className="h-3 w-3" /> 需关注趋势
               </p>
             </div>
-          </div>
-        </BaseCard>
+            <div className="h-12 w-12 rounded-full bg-rose-50 flex items-center justify-center">
+              <History className="h-6 w-6 text-rose-500" />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-l-4 border-l-amber-500 shadow-sm hover:shadow-md transition-all">
+          <CardContent className="p-6 flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-slate-500 mb-1">黑名单用户</p>
+              <h2 className="text-3xl font-bold text-slate-900">{filteredBlacklist.length}</h2>
+              <p className="text-xs text-amber-600 mt-1 flex items-center gap-1">
+                <Ban className="h-3 w-3" /> 限制中
+              </p>
+            </div>
+            <div className="h-12 w-12 rounded-full bg-amber-50 flex items-center justify-center">
+              <UserX className="h-6 w-6 text-amber-500" />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-l-4 border-l-blue-500 shadow-sm hover:shadow-md transition-all">
+          <CardContent className="p-6 flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-slate-500 mb-1">总违约积分</p>
+              <h2 className="text-3xl font-bold text-slate-900">{totalPoints}</h2>
+              <p className="text-xs text-blue-600 mt-1 flex items-center gap-1">
+                <Info className="h-3 w-3" /> 累计扣分
+              </p>
+            </div>
+            <div className="h-12 w-12 rounded-full bg-blue-50 flex items-center justify-center">
+              <ShieldAlert className="h-6 w-6 text-blue-500" />
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
-      {/* 违约规则说明 */}
-      <BaseCard
-        title="违约规则说明"
-        subtitle="了解如何判定违约以及对应的处罚规则"
-      >
-        <div className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* 无故缺席 */}
-            <div className="border-l-4 border-red-500 pl-4 py-2">
-              <h3 className="font-semibold text-red-700 mb-1">无故缺席 (no_show)</h3>
-              <p className="text-sm text-gray-600 mb-2">
-                用户已获得预约批准，但在预定时间没有签到
-              </p>
-              <p className="text-sm font-medium text-red-600">违约分：5 分</p>
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+        {[
+          { title: "无故缺席", code: "no_show", points: 5, desc: "预约获批但未到场签到", color: "bg-rose-50 border-rose-100 text-rose-700", icon: UserX },
+          { title: "迟到取消", code: "late_cancel", points: 2, desc: "开始前24小时内取消", color: "bg-amber-50 border-amber-100 text-amber-700", icon: Clock },
+          { title: "超时占用", code: "timeout", points: 3, desc: "未及时签出归还实验室", color: "bg-orange-50 border-orange-100 text-orange-700", icon: History },
+          { title: "其他违规", code: "manual", points: "Custom", desc: "设备损坏或违反管理规定", color: "bg-slate-100 border-slate-200 text-slate-700", icon: AlertTriangle },
+        ].map((rule) => (
+          <div
+            key={rule.code}
+            className={cn(
+              "p-4 rounded-xl border flex flex-col gap-2 transition-transform hover:scale-[1.02]",
+              rule.color
+            )}
+          >
+            <div className="flex justify-between items-start">
+              <div className="p-2 bg-white/60 rounded-lg">
+                <rule.icon className="h-5 w-5 opacity-80" />
+              </div>
+              <span className="text-xl font-bold opacity-40">
+                {typeof rule.points === "number" ? `-${rule.points}` : "N"}
+              </span>
             </div>
-
-            {/* 迟到取消 */}
-            <div className="border-l-4 border-amber-500 pl-4 py-2">
-              <h3 className="font-semibold text-amber-700 mb-1">迟到取消 (late_cancel)</h3>
-              <p className="text-sm text-gray-600 mb-2">
-                用户在预定开始前不足 24 小时取消预约
-              </p>
-              <p className="text-sm font-medium text-amber-600">违约分：2 分</p>
-            </div>
-
-            {/* 超时未签出 */}
-            <div className="border-l-4 border-orange-500 pl-4 py-2">
-              <h3 className="font-semibold text-orange-700 mb-1">超时未签出 (timeout_checkout)</h3>
-              <p className="text-sm text-gray-600 mb-2">
-                用户预约超过规定时间后未及时签出实验室
-              </p>
-              <p className="text-sm font-medium text-orange-600">违约分：3 分</p>
-            </div>
-
-            {/* 手动记录 */}
-            <div className="border-l-4 border-pink-500 pl-4 py-2">
-              <h3 className="font-semibold text-pink-700 mb-1">手动记录 (manual_record)</h3>
-              <p className="text-sm text-gray-600 mb-2">
-                管理员手动记录的其他违约行为（设备损坏、违反规则等）
-              </p>
-              <p className="text-sm font-medium text-pink-600">违约分：可自定义</p>
+            <div>
+              <h4 className="font-semibold">{rule.title}</h4>
+              <p className="text-xs opacity-80 mt-1 leading-relaxed">{rule.desc}</p>
             </div>
           </div>
+        ))}
+      </div>
 
-          {/* 黑名单触发规则 */}
-          <div className="mt-6 pt-6 border-t bg-blue-50 p-4 rounded-lg">
-            <h4 className="font-semibold text-blue-900 mb-2">黑名单触发规则</h4>
-            <ul className="text-sm text-blue-800 space-y-1">
-              <li>• 累计违约分数 ≥ 10 分时，用户自动进入黑名单</li>
-              <li>• 黑名单用户无法创建新的预约请求</li>
-              <li>• 默认限制期限为 7 天，超期后自动解除</li>
-              <li>• 管理员可手动提前解除或延长限制</li>
-            </ul>
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-8 items-start">
+        <div className="xl:col-span-1 space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+              <Ban className="h-5 w-5 text-amber-500" /> 黑名单管理
+            </h3>
+            <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">
+              {filteredBlacklist.length} 人受限
+            </Badge>
           </div>
-        </div>
-      </BaseCard>
 
-      {/* 违约记录列表 */}
-      <BaseCard
-        title="违约记录"
-        subtitle="查看所有用户的违约记录"
-        headerAction={
-          <div className="flex gap-2 items-center">
-            <Label className="text-xs">用户ID筛选：</Label>
-            <Input
-              type="number"
-              placeholder="输入用户ID"
-              value={searchUserId}
-              onChange={(e) => setSearchUserId(e.target.value)}
-              className="w-32 rounded-lg"
-            />
-          </div>
-        }
-      >
-        <div className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>用户名称</TableHead>
-                <TableHead>违约类型</TableHead>
-                <TableHead>积分</TableHead>
-                <TableHead>描述</TableHead>
-                <TableHead>相关预约</TableHead>
-                <TableHead>记录时间</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {violations.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={6} className="text-center text-gray-500 py-12">
-                    暂无违约记录
-                  </TableCell>
-                </TableRow>
+          <Card className="overflow-hidden border-amber-200/60">
+            <div className="divide-y divide-slate-100">
+              {filteredBlacklist.length === 0 ? (
+                <div className="p-8 text-center text-slate-500 text-sm">暂无黑名单用户</div>
               ) : (
-                violations.map((violation) => {
-                  const typeInfo = violationTypeMap[violation.violationType] || {
-                    label: violation.violationType,
-                    icon: AlertTriangle,
-                  };
-                  const Icon = typeInfo.icon;
-
-                  return (
-                    <TableRow key={violation.id}>
-                      <TableCell className="font-medium">{violation.userName || `用户${violation.userId}`}</TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <Icon className="h-4 w-4 text-red-600" />
-                          <span>{typeInfo.label}</span>
+                filteredBlacklist.map((item: any) => (
+                  <div key={item.id || item.userId} className="p-4 hover:bg-slate-50 transition-colors group">
+                    <div className="flex justify-between items-start mb-2">
+                      <div className="flex items-center gap-3">
+                        <div className="h-10 w-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 font-bold border border-slate-200">
+                          {item.userName?.[0] || "?"}
                         </div>
-                      </TableCell>
-                      <TableCell>
-                        <StatusBadge variant="rejected">
-                          {violation.points} 分
-                        </StatusBadge>
-                      </TableCell>
-                      <TableCell className="max-w-xs truncate">
-                        {violation.description || "-"}
-                      </TableCell>
-                      <TableCell>
-                        {violation.reservationId ? `#${violation.reservationId}` : "-"}
-                      </TableCell>
-                      <TableCell className="text-sm text-gray-600">
-                        {violation.createdAt
-                          ? format(new Date(violation.createdAt), "yyyy-MM-dd HH:mm", {
-                              locale: zhCN,
-                            })
-                          : "-"}
-                      </TableCell>
-                    </TableRow>
-                  );
-                })
-              )}
-            </TableBody>
-          </Table>
-        </div>
-      </BaseCard>
+                        <div>
+                          <div className="font-semibold text-slate-900">{item.userName || "-"}</div>
+                          <div className="text-xs text-slate-500 font-mono">ID: {item.userId}</div>
+                        </div>
+                      </div>
+                      <Badge variant="destructive" className="bg-rose-50 text-rose-600 border-rose-100">
+                        积分 {item.totalViolationPoints}
+                      </Badge>
+                    </div>
 
-      {/* 黑名单列表 */}
-      <BaseCard
-        title="黑名单管理"
-        subtitle="管理受限用户的黑名单状态"
-        headerAction={
-          <StatusBadge variant="restricted">
-            {blacklistData.filter((b: any) => b.operationType === "blacklist_add").length} 个活跃限制
-          </StatusBadge>
-        }
-      >
-        <div className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>用户ID</TableHead>
-                <TableHead>操作</TableHead>
-                <TableHead>理由</TableHead>
-                <TableHead>记录时间</TableHead>
-                <TableHead className="text-right">操作</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {blacklistData.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={5} className="text-center text-gray-500 py-12">
-                    暂无黑名单记录
-                  </TableCell>
-                </TableRow>
-              ) : (
-                blacklistData.map((item: any) => (
-                  <TableRow key={item.id}>
-                    <TableCell className="font-medium">{item.targetId}</TableCell>
-                    <TableCell>
-                      <StatusBadge variant="restricted">
-                        {item.operationType === "blacklist_add" ? "已加入" : "已移除"}
-                      </StatusBadge>
-                    </TableCell>
-                    <TableCell className="max-w-xs truncate">
-                      {item.reason || "-"}
-                    </TableCell>
-                    <TableCell className="text-sm text-gray-600">
-                      {item.createdAt
-                        ? format(new Date(item.createdAt), "yyyy-MM-dd", {
-                            locale: zhCN,
-                          })
-                        : "-"}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {item.operationType === "blacklist_add" && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => {
-                            setSelectedBlacklist(item);
-                            setIsRemoveDialogOpen(true);
-                          }}
-                          className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                        >
-                          <Trash2 className="h-4 w-4 mr-1" />
-                          移除
-                        </Button>
-                      )}
-                    </TableCell>
-                  </TableRow>
+                    <div className="space-y-2 mt-3 text-xs">
+                      <div className="flex justify-between">
+                        <span className="text-slate-500">限制类型</span>
+                        <span className="font-medium text-slate-900">
+                          {restrictionTypeMap[item.restrictionType] || item.restrictionType || "-"}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-500">解禁时间</span>
+                        <span className="font-medium text-slate-900">
+                          {item.restrictedUntil
+                            ? format(new Date(item.restrictedUntil), "yyyy-MM-dd", { locale: zhCN })
+                            : "-"}
+                        </span>
+                      </div>
+                      <div className="bg-slate-50 p-2 rounded text-slate-600 border border-slate-100">
+                        原因: {item.reason || "-"}
+                      </div>
+                    </div>
+
+                    <div className="mt-4 pt-3 border-t border-slate-50 flex justify-end">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="text-rose-600 hover:bg-rose-50 h-8"
+                        onClick={() => {
+                          setSelectedBlacklist(item);
+                          setIsRemoveDialogOpen(true);
+                        }}
+                      >
+                        <Trash2 className="h-3.5 w-3.5 mr-1" /> 解除限制
+                      </Button>
+                    </div>
+                  </div>
                 ))
               )}
-            </TableBody>
-          </Table>
+            </div>
+          </Card>
         </div>
-      </BaseCard>
 
-      {/* 移除确认对话框 */}
+        <div className="xl:col-span-2 space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+              <History className="h-5 w-5 text-slate-500" /> 违约记录
+            </h3>
+            <div className="flex w-full sm:w-auto gap-3 flex-col sm:flex-row">
+              <div className="relative w-full sm:w-64">
+                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
+                <Input
+                  placeholder="搜索用户姓名或ID..."
+                  className="pl-9 h-9"
+                  value={searchUserId}
+                  onChange={(e) => setSearchUserId(e.target.value)}
+                />
+              </div>
+              <Select value={selectedClassId} onValueChange={setSelectedClassId}>
+                <SelectTrigger className="h-9 w-full sm:w-48 bg-white">
+                  <SelectValue placeholder="筛选班级" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">全部班级</SelectItem>
+                  {classList.map((cls: any) => (
+                    <SelectItem key={cls.id} value={`${cls.id}`}>
+                      {cls.name || cls.classNo || `班级${cls.id}`}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <Card className="overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm text-left">
+                <thead className="text-xs text-slate-500 uppercase bg-slate-50/50 border-b border-slate-200">
+                  <tr>
+                    <th className="px-6 py-3 font-medium">用户</th>
+                    <th className="px-6 py-3 font-medium">违约类型</th>
+                    <th className="px-6 py-3 font-medium">扣分</th>
+                    <th className="px-6 py-3 font-medium">详情描述</th>
+                    <th className="px-6 py-3 font-medium">记录时间</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 bg-white">
+                  {filteredViolations.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="px-6 py-12 text-center text-slate-500">
+                        暂无违约记录
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredViolations.map((v: any) => {
+                      const type = violationTypeMap[v.violationType] || violationTypeMap.other;
+                      const TypeIcon = type.icon;
+
+                      return (
+                        <tr key={v.id} className="hover:bg-slate-50/50 transition-colors">
+                          <td className="px-6 py-4">
+                            <div className="flex items-center gap-3">
+                              <div className="h-8 w-8 rounded-full bg-slate-100 flex items-center justify-center text-xs text-slate-600 font-bold">
+                                {v.userName?.[0] || "?"}
+                              </div>
+                              <div>
+                                <div className="font-medium text-slate-900">{v.userName || "-"}</div>
+                                <div className="text-xs text-slate-400 font-mono">{v.userId}</div>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4">
+                            <Badge className={cn("pl-1.5 pr-2.5 py-1 gap-1.5 border-0", type.bg, type.color)}>
+                              <TypeIcon className="h-3.5 w-3.5" />
+                              {type.label}
+                            </Badge>
+                          </td>
+                          <td className="px-6 py-4">
+                            <span className="font-bold text-rose-600">-{v.points}</span>
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="max-w-[200px] truncate text-slate-600" title={v.description}>
+                              {v.description}
+                            </div>
+                            {v.reservationId && (
+                              <div className="text-xs text-slate-400 font-mono mt-0.5">#{v.reservationId}</div>
+                            )}
+                          </td>
+                          <td className="px-6 py-4 text-slate-500 whitespace-nowrap">
+                            {v.createdAt ? format(new Date(v.createdAt), "MM-dd HH:mm", { locale: zhCN }) : "-"}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        </div>
+      </div>
+
       <Dialog open={isRemoveDialogOpen} onOpenChange={setIsRemoveDialogOpen}>
-        <DialogContent className="rounded-2xl">
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <AlertTriangle className="h-5 w-5 text-amber-600" />
-              确认移除黑名单
-            </DialogTitle>
+            <DialogTitle className="text-lg font-bold">确认解除限制？</DialogTitle>
             <DialogDescription>
-              确定要将用户 #{selectedBlacklist?.userId} 从黑名单中移除吗？移除后该用户将恢复正常预约权限。
+              确定要将用户 {selectedBlacklist?.userName} (#{selectedBlacklist?.userId}) 从黑名单中移除吗？移除后该用户将立即恢复正常预约权限。
             </DialogDescription>
           </DialogHeader>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setIsRemoveDialogOpen(false)}
-              className="rounded-lg"
-            >
+          <div className="flex gap-3 pt-2">
+            <Button variant="secondary" className="flex-1" onClick={() => setIsRemoveDialogOpen(false)}>
               取消
             </Button>
             <Button
+              className="flex-1 bg-amber-600 hover:bg-amber-700 text-white"
               onClick={handleRemoveBlacklist}
               disabled={removeBlacklist.isPending}
-              className="bg-red-600 hover:bg-red-700 rounded-lg"
             >
-              确认移除
+              {removeBlacklist.isPending ? "处理中..." : "确认解除"}
             </Button>
-          </DialogFooter>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

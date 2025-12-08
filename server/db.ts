@@ -1,6 +1,6 @@
-import { and, desc, eq, gte, lte, or, sql } from "drizzle-orm";
+import { and, desc, eq, gte, lte, or, sql, lt, gt } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertLabReservation, InsertLabRoom, InsertLabReserveRule, InsertUser, InsertLabDevice, InsertNotification, labReservations, labRooms, labReserveRules, users, labDevices, notifications, approvalConfigs, approvalHistories, violationRecords, blacklist, auditLogs, InsertApprovalConfig, InsertApprovalHistory, InsertViolationRecord, InsertBlacklist, InsertAuditLog } from "../drizzle/schema";
+import { InsertLabReservation, InsertLabRoom, InsertLabReserveRule, InsertUser, InsertLabDevice, InsertNotification, labReservations, labRooms, labReserveRules, users, labDevices, notifications, approvalConfigs, approvalHistories, violationRecords, blacklist, auditLogs, InsertApprovalConfig, InsertApprovalHistory, InsertViolationRecord, InsertBlacklist, InsertAuditLog, courses, courseReservations, courseStudents, openingRules, blockedPeriods, InsertCourse, InsertCourseReservation, InsertCourseStudent, InsertOpeningRule, InsertBlockedPeriod, classes, classStudents, InsertClass, InsertClassStudent } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -56,8 +56,8 @@ export async function upsertUser(user: InsertUser): Promise<void> {
       values.role = user.role;
       updateSet.role = user.role;
     } else if (user.openId === ENV.ownerOpenId) {
-      values.role = 'admin';
-      updateSet.role = 'admin';
+      values.role = 'sysAdmin';
+      updateSet.role = 'sysAdmin';
     }
 
     if (!values.lastSignedIn) {
@@ -87,6 +87,12 @@ export async function getUserByOpenId(openId: string) {
   const result = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
 
   return result.length > 0 ? result[0] : undefined;
+}
+
+export async function getAllUsers() {
+  const db = await getDb();
+  if (!db) return [];
+  return await db.select().from(users).orderBy(desc(users.createdAt));
 }
 
 // ============ 实验室管理 ============
@@ -149,6 +155,47 @@ export async function getAllReservations() {
   const db = await getDb();
   if (!db) return [];
   return await db.select().from(labReservations).orderBy(desc(labReservations.createdAt));
+}
+
+export type ReservationPageResult = {
+  items: any[];
+  total: number;
+};
+
+export async function getReservationsPaged(opts: { page?: number; pageSize?: number; q?: string; status?: string; labId?: number; }) : Promise<ReservationPageResult> {
+  const db = await getDb();
+  if (!db) return { items: [], total: 0 };
+
+  const page = opts.page && opts.page > 0 ? opts.page : 1;
+  const pageSize = opts.pageSize && opts.pageSize > 0 ? opts.pageSize : 10;
+  const offset = (page - 1) * pageSize;
+
+  const whereClauses: any[] = [];
+  if (opts.status) {
+    // status is a string union; use SQL expression to avoid strict enum typing issues
+    whereClauses.push(sql`${labReservations.status} = ${opts.status}`);
+  }
+  if (opts.labId) {
+    whereClauses.push(eq(labReservations.labId, opts.labId));
+  }
+  if (opts.q && opts.q.trim()) {
+    const q = `%${opts.q.trim()}%`;
+    whereClauses.push(sql`(${labReservations.title} LIKE ${q} OR ${labReservations.reason} LIKE ${q})`);
+  }
+
+  const totalRes = await db.select({ count: sql<number>`COUNT(*)`.as('count') })
+    .from(labReservations)
+    .where(whereClauses.length > 0 ? and(...whereClauses) : undefined);
+
+  const total = totalRes && totalRes.length > 0 ? Number(totalRes[0].count) : 0;
+
+  const items = await db.select().from(labReservations)
+    .where(whereClauses.length > 0 ? and(...whereClauses) : undefined)
+    .orderBy(desc(labReservations.createdAt))
+    .limit(pageSize)
+    .offset(offset);
+
+  return { items, total };
 }
 
 export async function updateReservation(id: number, data: Partial<InsertLabReservation>) {
@@ -318,11 +365,14 @@ export async function checkReservationRules(
         return { valid: false, reason: "规则配置错误" };
       }
 
+      // 标准化时间到天的开始（00:00:00）
       const now = new Date();
-      const earliestStart = new Date(now.getTime() + advanceDays * 24 * 60 * 60 * 1000);
+      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+      const earliestStart = new Date(todayStart.getTime() + advanceDays * 24 * 60 * 60 * 1000);
+      const reservationDayStart = new Date(startTime.getFullYear(), startTime.getMonth(), startTime.getDate(), 0, 0, 0, 0);
 
-      if (startTime < earliestStart) {
-        const daysUntilEarliest = Math.ceil((earliestStart.getTime() - now.getTime()) / (24 * 60 * 60 * 1000));
+      if (reservationDayStart < earliestStart) {
+        const daysUntilEarliest = Math.ceil((earliestStart.getTime() - todayStart.getTime()) / (24 * 60 * 60 * 1000));
         return {
           valid: false,
           reason: `必须至少提前 ${advanceDays} 天预约，最早可预约日期为 ${earliestStart.toLocaleDateString()}`
@@ -412,25 +462,23 @@ export async function getLabUsageStatistics(startDate: Date, endDate: Date) {
   const db = await getDb();
   if (!db) return [];
   
-  const reservations = await db
-    .select({
-      labId: labReservations.labId,
-      labName: labRooms.name,
-      totalReservations: sql<number>`COUNT(DISTINCT ${labReservations.id})`.as('totalReservations'),
-      approvedReservations: sql<number>`SUM(CASE WHEN ${labReservations.status} = 'approved' THEN 1 ELSE 0 END)`.as('approvedReservations'),
-      totalHours: sql<number>`SUM(TIMESTAMPDIFF(HOUR, ${labReservations.startTime}, ${labReservations.endTime}))`.as('totalHours'),
-    })
-    .from(labReservations)
-    .innerJoin(labRooms, eq(labReservations.labId, labRooms.id))
-    .where(
-      and(
-        gte(labReservations.startTime, startDate),
-        lte(labReservations.endTime, endDate)
-      )
-    )
-    .groupBy(labReservations.labId, labRooms.name);
+  // 使用原生 SQL 避免 Drizzle ORM 的 groupBy 问题
+  const [rows] = await db.execute(sql`
+    SELECT 
+      r.labId,
+      lr.name as labName,
+      COUNT(DISTINCT r.id) as totalReservations,
+      SUM(CASE WHEN r.status = 'approved' THEN 1 ELSE 0 END) as approvedReservations,
+      SUM(TIMESTAMPDIFF(HOUR, r.startTime, r.endTime)) as totalHours
+    FROM lab_reservations r
+    INNER JOIN lab_rooms lr ON r.labId = lr.id
+    WHERE r.startTime < ${endDate}
+      AND r.endTime > ${startDate}
+    GROUP BY r.labId, lr.name
+    ORDER BY r.labId
+  `);
   
-  return reservations;
+  return (Array.isArray(rows) ? rows : []) as any[];
 }
 
 /**
@@ -454,8 +502,8 @@ export async function getUserActivityRanking(limit: number = 10, startDate: Date
     .from(labReservations)
     .where(
       and(
-        gte(labReservations.startTime, startDate),
-        lte(labReservations.endTime, endDate)
+        lt(labReservations.startTime, endDate),
+        gt(labReservations.endTime, startDate)
       )
     )
     .groupBy(labReservations.userId)
@@ -484,8 +532,8 @@ export async function getReservationTimeDistribution(startDate: Date, endDate: D
     .from(labReservations)
     .where(
       and(
-        gte(labReservations.startTime, startDate),
-        lte(labReservations.endTime, endDate)
+        lt(labReservations.startTime, endDate),
+        gt(labReservations.endTime, startDate)
       )
     )
     .groupBy(sql`DATE(${labReservations.startTime})`)
@@ -512,8 +560,8 @@ export async function getReservationStatusStatistics(startDate: Date, endDate: D
     .from(labReservations)
     .where(
       and(
-        gte(labReservations.startTime, startDate),
-        lte(labReservations.endTime, endDate)
+        lt(labReservations.startTime, endDate),
+        gt(labReservations.endTime, startDate)
       )
     )
     .groupBy(labReservations.status);
@@ -533,22 +581,35 @@ export async function getStatisticsSummary(startDate: Date, endDate: Date) {
   const summary = await db
     .select({
       totalReservations: sql<number>`COUNT(*)`.as('totalReservations'),
-      approvedReservations: sql<number>`SUM(CASE WHEN ${labReservations.status} = 'approved' THEN 1 ELSE 0 END)`.as('approvedReservations'),
-      pendingReservations: sql<number>`SUM(CASE WHEN ${labReservations.status} = 'pending' THEN 1 ELSE 0 END)`.as('pendingReservations'),
-      rejectedReservations: sql<number>`SUM(CASE WHEN ${labReservations.status} = 'rejected' THEN 1 ELSE 0 END)`.as('rejectedReservations'),
+      approvedReservations: sql<number>`COALESCE(SUM(CASE WHEN ${labReservations.status} = 'approved' THEN 1 ELSE 0 END), 0)`.as('approvedReservations'),
+      pendingReservations: sql<number>`COALESCE(SUM(CASE WHEN ${labReservations.status} = 'pending' THEN 1 ELSE 0 END), 0)`.as('pendingReservations'),
+      rejectedReservations: sql<number>`COALESCE(SUM(CASE WHEN ${labReservations.status} = 'rejected' THEN 1 ELSE 0 END), 0)`.as('rejectedReservations'),
       totalUsers: sql<number>`COUNT(DISTINCT ${labReservations.userId})`.as('totalUsers'),
       totalLabs: sql<number>`COUNT(DISTINCT ${labReservations.labId})`.as('totalLabs'),
-      totalHours: sql<number>`SUM(TIMESTAMPDIFF(HOUR, ${labReservations.startTime}, ${labReservations.endTime}))`.as('totalHours'),
+      totalHours: sql<number>`COALESCE(SUM(TIMESTAMPDIFF(HOUR, ${labReservations.startTime}, ${labReservations.endTime})), 0)`.as('totalHours'),
     })
     .from(labReservations)
     .where(
       and(
-        gte(labReservations.startTime, startDate),
-        lte(labReservations.endTime, endDate)
+        lt(labReservations.startTime, endDate),
+        gt(labReservations.endTime, startDate)
       )
     );
   
-  return summary.length > 0 ? summary[0] : null;
+  // 强制转换为数字类型
+  const result = summary.length > 0 ? summary[0] : null;
+  if (result) {
+    return {
+      totalReservations: Number(result.totalReservations),
+      approvedReservations: Number(result.approvedReservations),
+      pendingReservations: Number(result.pendingReservations),
+      rejectedReservations: Number(result.rejectedReservations),
+      totalUsers: Number(result.totalUsers),
+      totalLabs: Number(result.totalLabs),
+      totalHours: Number(result.totalHours),
+    };
+  }
+  return null;
 }
 
 // ============ 通知管理 ============
@@ -776,6 +837,8 @@ export async function getAllViolations() {
       id: violationRecords.id,
       userId: violationRecords.userId,
       userName: users.name,
+      classId: classStudents.classId,
+      className: classes.name,
       reservationId: violationRecords.reservationId,
       violationType: violationRecords.violationType,
       points: violationRecords.points,
@@ -785,6 +848,8 @@ export async function getAllViolations() {
     })
     .from(violationRecords)
     .leftJoin(users, eq(violationRecords.userId, users.id))
+    .leftJoin(classStudents, eq(classStudents.studentId, violationRecords.userId))
+    .leftJoin(classes, eq(classes.id, classStudents.classId))
     .orderBy(desc(violationRecords.recordedAt));
 }
 
@@ -921,4 +986,517 @@ export async function getAuditLogsByReservation(reservationId: number) {
       )
     )
     .orderBy(desc(auditLogs.operatedAt));
+}
+
+// ============ 审批配置查询 ============
+
+export async function getAllApprovalConfigs() {
+  const db = await getDb();
+  if (!db) return [];
+  return await db.select().from(approvalConfigs).orderBy(approvalConfigs.createdAt);
+}
+
+// ============ 黑名单查询 ============
+
+export async function getAllBlacklistUsers() {
+  const db = await getDb();
+  if (!db) return [];
+  
+  return await db
+    .select({
+      id: blacklist.id,
+      userId: blacklist.userId,
+      userName: users.name,
+      classId: classStudents.classId,
+      className: classes.name,
+      totalViolationPoints: blacklist.totalViolationPoints,
+      violationThreshold: blacklist.violationThreshold,
+      restrictionType: blacklist.restrictionType,
+      restrictedUntil: blacklist.restrictedUntil,
+      restrictedLabIds: blacklist.restrictedLabIds,
+      reason: blacklist.reason,
+      createdAt: blacklist.createdAt,
+    })
+    .from(blacklist)
+    .leftJoin(users, eq(blacklist.userId, users.id))
+    .leftJoin(classStudents, eq(classStudents.studentId, blacklist.userId))
+    .leftJoin(classes, eq(classes.id, classStudents.classId))
+    .orderBy(desc(blacklist.createdAt));
+}
+
+export async function addToBlacklist(userId: number, data: Partial<InsertBlacklist>) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  const existing = await getUserBlacklist(userId);
+  if (existing) {
+    await db.update(blacklist).set(data).where(eq(blacklist.userId, userId));
+  } else {
+    await db.insert(blacklist).values({
+      userId,
+      totalViolationPoints: 0,
+      violationThreshold: 10,
+      restrictionType: 'time_limit',
+      ...data,
+    });
+  }
+}
+
+// ============ 课程管理（Phase 4 P1）============
+
+export async function checkCourseNoExists(courseNo: string): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return false;
+  const result = await db
+    .select({ id: courses.id })
+    .from(courses)
+    .where(eq(courses.courseNo, courseNo))
+    .limit(1);
+  return result.length > 0;
+}
+
+export async function createCourse(course: InsertCourse) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  try {
+    const result = await db.insert(courses).values({
+      courseNo: course.courseNo,
+      name: course.name,
+      teacherId: course.teacherId,
+      description: course.description || null,
+      semester: course.semester,
+      status: course.status,
+    });
+    return result;
+  } catch (error: any) {
+    // 重新抛出错误，让调用者处理
+    if (error.code === 'ER_DUP_ENTRY' || error.sqlState === '23000') {
+      const dupError = new Error(`课程号已存在`);
+      (dupError as any).code = 'DUPLICATE_COURSE_NO';
+      throw dupError;
+    }
+    throw error;
+  }
+}
+
+export async function getCourseById(id: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(courses).where(eq(courses.id, id)).limit(1);
+  return result.length > 0 ? result[0] : undefined;
+}
+
+export async function getCoursesByTeacherId(teacherId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return await db
+    .select({
+      id: courses.id,
+      courseNo: courses.courseNo,
+      name: courses.name,
+      description: courses.description,
+      semester: courses.semester,
+      teacherId: courses.teacherId,
+      createdAt: courses.createdAt,
+      updatedAt: courses.updatedAt,
+      studentCount: sql<number>`COUNT(DISTINCT ${courseStudents.studentId})`.as('studentCount'),
+    })
+    .from(courses)
+    .leftJoin(courseStudents, eq(courses.id, courseStudents.courseId))
+    .where(eq(courses.teacherId, teacherId))
+    .groupBy(courses.id)
+    .orderBy(desc(courses.createdAt));
+}
+
+export async function getAllCourses() {
+  const db = await getDb();
+  if (!db) return [];
+  return await db
+    .select({
+      id: courses.id,
+      courseNo: courses.courseNo,
+      name: courses.name,
+      description: courses.description,
+      semester: courses.semester,
+      teacherId: courses.teacherId,
+      createdAt: courses.createdAt,
+      updatedAt: courses.updatedAt,
+      studentCount: sql<number>`COUNT(DISTINCT ${courseStudents.studentId})`.as('studentCount'),
+    })
+    .from(courses)
+    .leftJoin(courseStudents, eq(courses.id, courseStudents.courseId))
+    .groupBy(courses.id)
+    .orderBy(desc(courses.createdAt));
+}
+
+export async function updateCourse(id: number, course: Partial<InsertCourse>) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(courses).set(course).where(eq(courses.id, id));
+}
+
+export async function deleteCourse(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(courses).where(eq(courses.id, id));
+}
+
+// ============ 课程预约管理（Phase 4 P1）============
+
+export async function createCourseReservation(reservation: InsertCourseReservation) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(courseReservations).values(reservation);
+  return result;
+}
+
+export async function getCourseReservationById(id: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(courseReservations).where(eq(courseReservations.id, id)).limit(1);
+  return result.length > 0 ? result[0] : undefined;
+}
+
+export async function getCourseReservationsByCourse(courseId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  
+  // 只返回有效的预约（pending, approved, completed），排除已取消和已拒绝的
+  return await db
+    .select()
+    .from(courseReservations)
+    .where(
+      and(
+        eq(courseReservations.courseId, courseId),
+        or(
+          eq(courseReservations.status, 'pending'),
+          eq(courseReservations.status, 'approved'),
+          eq(courseReservations.status, 'completed')
+        )
+      )
+    )
+    .orderBy(desc(courseReservations.createdAt));
+}
+
+export async function getAllCourseReservationsByCourse(courseId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  
+  // 返回所有预约（包括已取消和已拒绝的），用于教师管理
+  return await db
+    .select()
+    .from(courseReservations)
+    .where(eq(courseReservations.courseId, courseId))
+    .orderBy(desc(courseReservations.createdAt));
+}
+
+export async function updateCourseReservation(id: number, reservation: Partial<InsertCourseReservation>) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(courseReservations).set(reservation).where(eq(courseReservations.id, id));
+}
+
+// ============ 课程学生管理（Phase 4 P1）============
+
+export async function addStudentToCourse(courseId: number, studentId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(courseStudents).values({
+    courseId,
+    studentId,
+    status: 'enrolled',
+  });
+}
+
+export async function getCourseStudents(courseId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  
+  return await db
+    .select({
+      id: courseStudents.id,
+      studentId: courseStudents.studentId,
+      studentName: users.name,
+      studentOpenId: users.openId,
+      status: courseStudents.status,
+      joinedAt: courseStudents.createdAt,
+    })
+    .from(courseStudents)
+    .leftJoin(users, eq(courseStudents.studentId, users.id))
+    .where(eq(courseStudents.courseId, courseId))
+    .orderBy(courseStudents.createdAt);
+}
+
+export async function removeStudentFromCourse(courseId: number, studentId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db
+    .delete(courseStudents)
+    .where(and(eq(courseStudents.courseId, courseId), eq(courseStudents.studentId, studentId)));
+}
+
+export async function getStudentCourses(studentId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  
+  const results = await db
+    .select({
+      id: courses.id,
+      courseNo: courses.courseNo,
+      name: courses.name,
+      teacherId: courses.teacherId,
+      teacherName: users.name,
+      semester: courses.semester,
+      status: courses.status,
+    })
+    .from(courseStudents)
+    .leftJoin(courses, eq(courseStudents.courseId, courses.id))
+    .leftJoin(users, eq(courses.teacherId, users.id))
+    .where(eq(courseStudents.studentId, studentId))
+    .orderBy(desc(courses.createdAt));
+  
+  // 使用 Map 根据 courseId 去重，保留最后一条
+  const uniqueCourses = Array.from(
+    new Map(results.map(course => [course.id, course])).values()
+  );
+  
+  return uniqueCourses;
+}
+
+// ============ 开放规则管理（Phase 4 P1）============
+
+export async function createOpeningRule(rule: InsertOpeningRule) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(openingRules).values(rule);
+}
+
+export async function getOpeningRulesForLab(labId?: number) {
+  const db = await getDb();
+  if (!db) return [];
+  
+  // 优先返回特定实验室的规则，否则返回全局规则
+  if (labId) {
+    const labRules = await db.select().from(openingRules).where(eq(openingRules.labId, labId)).orderBy(openingRules.dayOfWeek);
+    if (labRules.length > 0) return labRules;
+  }
+  
+  // 返回全局规则（labId为NULL）
+  return await db.select().from(openingRules).where(or(eq(openingRules.labId, null as any), eq(openingRules.labId, 0))).orderBy(openingRules.dayOfWeek);
+}
+
+export async function updateOpeningRule(id: number, rule: Partial<InsertOpeningRule>) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(openingRules).set(rule).where(eq(openingRules.id, id));
+}
+
+// ============ 禁用时段管理（Phase 4 P1）============
+
+export async function createBlockedPeriod(period: InsertBlockedPeriod) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(blockedPeriods).values(period);
+}
+
+export async function getBlockedPeriods(filters: { labId?: number; deviceId?: number; includeInactive?: boolean } = {}) {
+  const db = await getDb();
+  if (!db) return [];
+  
+  const conditions = [];
+  if (filters.labId !== undefined) conditions.push(eq(blockedPeriods.labId, filters.labId));
+  if (filters.deviceId !== undefined) conditions.push(eq(blockedPeriods.deviceId, filters.deviceId));
+  if (!filters.includeInactive) conditions.push(eq(blockedPeriods.status, 'active'));
+  
+  if (conditions.length === 0) {
+    return await db.select().from(blockedPeriods).orderBy(desc(blockedPeriods.startDate));
+  }
+  
+  return await db.select().from(blockedPeriods).where(and(...conditions)).orderBy(desc(blockedPeriods.startDate));
+}
+
+export async function getActiveBlockedPeriods(date: Date, labId?: number, deviceId?: number) {
+  const db = await getDb();
+  if (!db) return [];
+  
+  const conditions = [
+    eq(blockedPeriods.status, 'active'),
+    lte(blockedPeriods.startDate, date),
+    gte(blockedPeriods.endDate, date),
+  ];
+  
+  if (labId !== undefined) conditions.push(eq(blockedPeriods.labId, labId));
+  if (deviceId !== undefined) conditions.push(eq(blockedPeriods.deviceId, deviceId));
+  
+  return await db.select().from(blockedPeriods).where(and(...conditions));
+}
+
+export async function updateBlockedPeriod(id: number, period: Partial<InsertBlockedPeriod>) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(blockedPeriods).set(period).where(eq(blockedPeriods.id, id));
+}
+
+// ============ 班级管理（Classes）============
+
+export async function createClass(classData: InsertClass) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(classes).values(classData);
+  return result;
+}
+
+export async function getClassById(classId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  return await db.select().from(classes).where(eq(classes.id, classId)).then(rows => rows[0]);
+}
+
+export async function getAllClasses() {
+  const db = await getDb();
+  if (!db) return [];
+  return await db.select().from(classes).orderBy(desc(classes.createdAt));
+}
+
+export async function getClassesByStatus(status: 'active' | 'archived') {
+  const db = await getDb();
+  if (!db) return [];
+  return await db.select().from(classes).where(eq(classes.status, status)).orderBy(desc(classes.createdAt));
+}
+
+export async function updateClass(classId: number, classData: Partial<InsertClass>) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(classes).set(classData).where(eq(classes.id, classId));
+}
+
+// ============ 班级学生管理（Class Students）============
+
+export async function addStudentToClass(classId: number, studentId: number, studentNo?: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(classStudents).values({
+    classId,
+    studentId,
+    studentNo,
+    status: 'active',
+  });
+}
+
+export async function getClassStudents(classId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return await db
+    .select({
+      id: classStudents.id,
+      studentId: classStudents.studentId,
+      studentNo: classStudents.studentNo,
+      status: classStudents.status,
+      studentName: users.name,
+      studentOpenId: users.openId,
+    })
+    .from(classStudents)
+    .leftJoin(users, eq(classStudents.studentId, users.id))
+    .where(eq(classStudents.classId, classId))
+    .orderBy(classStudents.createdAt);
+}
+
+export async function getStudentClass(studentId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  return await db
+    .select({
+      classId: classStudents.classId,
+      className: classes.name,
+      classNo: classes.classNo,
+    })
+    .from(classStudents)
+    .leftJoin(classes, eq(classStudents.classId, classes.id))
+    .where(eq(classStudents.studentId, studentId))
+    .then(rows => rows[0]);
+}
+
+export async function removeStudentFromClass(classId: number, studentId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db
+    .delete(classStudents)
+    .where(and(eq(classStudents.classId, classId), eq(classStudents.studentId, studentId)));
+}
+
+export async function updateClassStudent(classId: number, studentId: number, data: Partial<InsertClassStudent>) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db
+    .update(classStudents)
+    .set(data)
+    .where(and(eq(classStudents.classId, classId), eq(classStudents.studentId, studentId)));
+}
+
+/**
+ * 自动取消超时未签到的预约
+ * 扫描所有状态为"approved"的预约，检查是否超过autoCancelHours
+ */
+export async function autoCancelOverdueReservations() {
+  const db = await getDb();
+  if (!db) return { cancelledCount: 0 };
+
+  try {
+    const now = new Date();
+    
+    // 获取所有已批准的预约
+    const approvedReservations = await db
+      .select()
+      .from(labReservations)
+      .where(eq(labReservations.status, "approved"));
+
+    let cancelledCount = 0;
+
+    for (const reservation of approvedReservations) {
+      // 获取该实验室的审批配置
+      const config = await getApprovalConfigForLab(reservation.labId);
+      
+      if (!config || !config.autoCancelHours || Number(config.autoCancelHours) <= 0) {
+        continue; // 未启用自动取消
+      }
+
+      const autoCancelHours = Number(config.autoCancelHours);
+      const startTime = new Date(reservation.startTime);
+      const cancelDeadline = new Date(startTime.getTime() + autoCancelHours * 60 * 60 * 1000);
+
+      // 如果当前时间已超过取消截止时间
+      if (now > cancelDeadline) {
+        // 更新预约状态为已取消
+        await db
+          .update(labReservations)
+          .set({
+            status: "cancelled",
+            updatedAt: new Date(),
+          })
+          .where(eq(labReservations.id, reservation.id));
+
+        // 记录违约（如果启用了违约系统）
+        try {
+          await recordViolation({
+            userId: reservation.userId,
+            reservationId: reservation.id,
+            violationType: "no_show",
+            description: `未按时签到，系统于 ${now.toISOString()} 自动取消预约`,
+            points: 1,
+          });
+        } catch (err) {
+          // 如果违约记录失败，只记录日志，不中断流程
+          console.error("Failed to record violation:", err);
+        }
+
+        cancelledCount++;
+      }
+    }
+
+    return { cancelledCount };
+  } catch (error) {
+    console.error("Error in autoCancelOverdueReservations:", error);
+    return { cancelledCount: 0 };
+  }
 }

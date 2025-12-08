@@ -1,4 +1,4 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar } from "drizzle-orm/mysql-core";
+import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, decimal } from "drizzle-orm/mysql-core";
 
 /**
  * Core user table backing auth flow.
@@ -16,7 +16,7 @@ export const users = mysqlTable("users", {
   name: text("name"),
   email: varchar("email", { length: 320 }),
   loginMethod: varchar("loginMethod", { length: 64 }),
-  role: mysqlEnum("role", ["user", "admin"]).default("user").notNull(),
+  role: mysqlEnum("role", ["student", "teacher", "labAdmin", "sysAdmin"]).default("student").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
@@ -138,6 +138,7 @@ export const approvalConfigs = mysqlTable("approval_configs", {
   approvalStages: text("approvalStages").notNull(), // JSON: [{ stage: 1, role: 'teacher', allowApprove: true, allowReject: true, canModifyTime: false }]
   rescheduleWindowHours: int("rescheduleWindowHours").default(24), // 允许改签的时间窗口（小时），开始前多少小时
   maxRescheduleCount: int("maxRescheduleCount").default(3), // 单个预约最多改签次数
+  autoCancelHours: decimal("autoCancelHours", { precision: 5, scale: 2 }).default("1"), // 预约开始后未签到多少小时自动取消（0表示禁用）
   status: mysqlEnum("status", ["enabled", "disabled"]).default("enabled").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
@@ -218,3 +219,132 @@ export const auditLogs = mysqlTable("audit_logs", {
 
 export type AuditLog = typeof auditLogs.$inferSelect;
 export type InsertAuditLog = typeof auditLogs.$inferInsert;
+
+/**
+ * 课程表 - 支持教学场景（Phase 4 P1）
+ */
+export const courses = mysqlTable("courses", {
+  id: int("id").autoincrement().primaryKey(),
+  courseNo: varchar("courseNo", { length: 50 }).notNull().unique(), // 课程编号
+  name: varchar("name", { length: 100 }).notNull(), // 课程名称
+  teacherId: int("teacherId").notNull(), // 授课教师ID（外键）
+  description: text("description"), // 课程描述
+  semester: varchar("semester", { length: 50 }).notNull(), // 学期：2024-1, 2024-2 等
+  status: mysqlEnum("status", ["active", "archived"]).default("active").notNull(), // 状态
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type Course = typeof courses.$inferSelect;
+export type InsertCourse = typeof courses.$inferInsert;
+
+/**
+ * 课程预约表 - 教师创建的课程级预约
+ */
+export const courseReservations = mysqlTable("course_reservations", {
+  id: int("id").autoincrement().primaryKey(),
+  courseId: int("courseId").notNull(), // 课程ID（外键）
+  labId: int("labId").notNull(), // 实验室ID（外键）
+  title: varchar("title", { length: 200 }).notNull(), // 预约标题
+  reason: text("reason"), // 预约原因
+  startTime: timestamp("startTime").notNull(), // 预约开始时间
+  endTime: timestamp("endTime").notNull(), // 预约结束时间
+  status: mysqlEnum("status", ["pending", "approved", "rejected", "cancelled", "completed"]).default("pending").notNull(),
+  rejectReason: text("rejectReason"), // 拒绝原因
+  approveTime: timestamp("approveTime"), // 审批时间
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type CourseReservation = typeof courseReservations.$inferSelect;
+export type InsertCourseReservation = typeof courseReservations.$inferInsert;
+
+/**
+ * 课程学生表 - 学生参与的课程
+ */
+export const courseStudents = mysqlTable("course_students", {
+  id: int("id").autoincrement().primaryKey(),
+  courseId: int("courseId").notNull(), // 课程ID（外键）
+  studentId: int("studentId").notNull(), // 学生ID（外键）
+  status: mysqlEnum("status", ["enrolled", "dropped", "completed"]).default("enrolled").notNull(), // 选课状态
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type CourseStudent = typeof courseStudents.$inferSelect;
+export type InsertCourseStudent = typeof courseStudents.$inferInsert;
+
+/**
+ * 开放规则表 - 实验室开放时间配置（Phase 4 P1）
+ */
+export const openingRules = mysqlTable("opening_rules", {
+  id: int("id").autoincrement().primaryKey(),
+  labId: int("labId"), // 实验室ID（外键，NULL表示全局规则）
+  dayOfWeek: int("dayOfWeek").notNull(), // 星期几：0-6（0=周日）
+  openTime: varchar("openTime", { length: 10 }).notNull(), // 开放时间：HH:mm
+  closeTime: varchar("closeTime", { length: 10 }).notNull(), // 关闭时间：HH:mm
+  isWorkday: int("isWorkday").default(1).notNull(), // 是否工作日：0-否, 1-是
+  status: mysqlEnum("status", ["enabled", "disabled"]).default("enabled").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type OpeningRule = typeof openingRules.$inferSelect;
+export type InsertOpeningRule = typeof openingRules.$inferInsert;
+
+/**
+ * 禁用时段表 - 维护期、假期等禁用时段（Phase 4 P1）
+ */
+export const blockedPeriods = mysqlTable("blocked_periods", {
+  id: int("id").autoincrement().primaryKey(),
+  labId: int("labId"), // 实验室ID（外键，NULL表示全局禁用）
+  deviceId: int("deviceId"), // 设备ID（外键，NULL表示不针对特定设备）
+  reason: varchar("reason", { length: 100 }).notNull(), // 禁用原因：maintenance, vacation, inspection 等
+  startDate: timestamp("startDate").notNull(), // 禁用开始日期
+  endDate: timestamp("endDate").notNull(), // 禁用结束日期
+  handleExisting: mysqlEnum("handleExisting", ["allow", "warn", "cancel"]).default("warn").notNull(), // 处理已有预约方式：allow(保留), warn(提示), cancel(取消)
+  status: mysqlEnum("status", ["active", "inactive"]).default("active").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type BlockedPeriod = typeof blockedPeriods.$inferSelect;
+export type InsertBlockedPeriod = typeof blockedPeriods.$inferInsert;
+
+/**
+ * 班级表 - 学生班级信息
+ */
+export const classes = mysqlTable("classes", {
+  id: int("id").autoincrement().primaryKey(),
+  classNo: varchar("classNo", { length: 50 }).notNull().unique(), // 班级编号：如 2024-1-软工01
+  name: varchar("name", { length: 100 }).notNull(), // 班级名称
+  major: varchar("major", { length: 100 }), // 专业
+  grade: varchar("grade", { length: 20 }), // 年级：2024, 2023 等
+  counselorId: int("counselorId"), // 班主任ID（外键）
+  capacity: int("capacity").default(0), // 班级容量
+  description: text("description"), // 班级描述
+  semester: varchar("semester", { length: 50 }), // 学期
+  status: mysqlEnum("status", ["active", "archived"]).default("active").notNull(), // 状态
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type Class = typeof classes.$inferSelect;
+export type InsertClass = typeof classes.$inferInsert;
+
+/**
+ * 班级学生表 - 学生所属班级
+ */
+export const classStudents = mysqlTable("class_students", {
+  id: int("id").autoincrement().primaryKey(),
+  classId: int("classId").notNull(), // 班级ID（外键）
+  studentId: int("studentId").notNull(), // 学生ID（外键）
+  studentNo: varchar("studentNo", { length: 50 }), // 学号
+  status: mysqlEnum("status", ["active", "graduated", "suspended", "withdrawn"]).default("active").notNull(), // 学生状态
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type ClassStudent = typeof classStudents.$inferSelect;
+export type InsertClassStudent = typeof classStudents.$inferInsert;
+

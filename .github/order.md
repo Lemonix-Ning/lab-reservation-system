@@ -1,4 +1,4 @@
-现在进行阶段汇总
-1.根据此次全部对话和阶段开发按相关文档内容原格式更新COMPLETE_DOCUMENTATION，DEVELOPMENT_LOG，DEVELOPMENT_RULES，TEST_SUMMARY 四个文档。
-2..github下的所有文档和这四个文档不要删除，其余的全部删除。
-3.删除冗余代码和代码文件，测试文件等
+现在进行阶段“汇总”
+1.根据此次最新前端美化对话和阶段开发的新增文档，对文件README，DEVELOPMENT_LOG，DEVELOPMENT_RULES，TEST_SUMMARY，DATABASE五个文档进行更新，按原文的内容格式更新。
+2.github下的所有文档和外面的这五个文档都不要删除，其余的全部删除。--最重要，千万不要删错了
+3.删除冗余代码和测试代码文件，数据库初始化文件等，反正只要是不影响项目运行的全部删掉，尽量减少项目大小

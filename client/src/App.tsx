@@ -12,21 +12,23 @@ import DeviceManage from "./pages/DeviceManage";
 import MyReservations from "./pages/MyReservations";
 import ReservationManage from "./pages/ReservationManage";
 import RuleManage from "./pages/RuleManage";
-import LabDashboard from "./pages/LabDashboard";
 import StatisticsDashboard from "./pages/StatisticsDashboard";
 import NotificationCenter from "./pages/NotificationCenter";
 import ApprovalConfig from "./pages/ApprovalConfig";
 import ViolationManage from "./pages/ViolationManage";
 import AuditLog from "./pages/AuditLog";
+import CourseManage from "./pages/CourseManage";
+import StudentCourses from "./pages/StudentCourses";
 
 function Router() {
   return (
     <Switch>
       <Route path={"/"} component={Home} />
-      <Route path={"/dashboard"} component={LabDashboard} />
       <Route path={"/labs"} component={LabRoomList} />
       <Route path={"/my-reservations"} component={MyReservations} />
       <Route path={"/notifications"} component={NotificationCenter} />
+      <Route path={"/courses"} component={CourseManage} />
+      <Route path={"/student/courses"} component={StudentCourses} />
       <Route path={"/admin/labs"} component={LabRoomManage} />
       <Route path={"/admin/devices"} component={DeviceManage} />
       <Route path={"/admin/reservations"} component={ReservationManage} />

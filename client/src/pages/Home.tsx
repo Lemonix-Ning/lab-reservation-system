@@ -107,7 +107,7 @@ export default function Home() {
 
               {isAdmin && (
                 <>
-                  <Link href="/dashboard">
+                  <Link href="/admin/statistics">
                     <Card className="cursor-pointer hover:shadow-md transition-shadow border-2 border-blue-200 bg-blue-50">
                       <CardHeader>
                         <CardTitle className="flex items-center gap-2 text-blue-700">

@@ -35,7 +35,8 @@ import {
   PanelLeft,
   ShieldCheck,
   AlertTriangle,
-  FileSearch
+  FileSearch,
+  Home
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -44,16 +45,29 @@ import { NotificationBell } from './NotificationBell';
 import { Button } from "./ui/button";
 
 const menuItems = [
-  { icon: BarChart3, label: "数据仪表板", path: "/", roles: ['admin'] },
-  { icon: Calendar, label: "浏览实验室", path: "/labs", roles: ['admin', 'student'] },
-  { icon: BookOpen, label: "我的预约", path: "/my-reservations", roles: ['student'] },
-  { icon: Monitor, label: "实验室管理", path: "/admin/labs", roles: ['admin'] },
-  { icon: Settings, label: "预约审核", path: "/admin/reservations", roles: ['admin'] },
-  { icon: FileText, label: "规则配置", path: "/admin/rules", roles: ['admin'] },
-  { icon: ShieldCheck, label: "审批配置", path: "/admin/approval-config", roles: ['admin'] },
-  { icon: AlertTriangle, label: "违约管理", path: "/admin/violations", roles: ['admin'] },
-  { icon: FileSearch, label: "审计日志", path: "/admin/audit-logs", roles: ['admin'] },
-  { icon: TrendingUp, label: "数据统计", path: "/admin/statistics", roles: ['admin'] },
+  // 系统管理员权限
+  { icon: Home, label: "首页", path: "/", roles: ['sysAdmin'] },
+  
+  // 所有角色都能访问
+  { icon: Calendar, label: "浏览实验室", path: "/labs", roles: ['student', 'teacher', 'labAdmin', 'sysAdmin'] },
+  { icon: BookOpen, label: "我的预约", path: "/my-reservations", roles: ['student', 'teacher', 'labAdmin', 'sysAdmin'] },
+  
+  // 学生权限
+  { icon: BookOpen, label: "我的课程", path: "/student/courses", roles: ['student'] },
+  
+  // 教师权限
+  { icon: BookOpen, label: "课程管理", path: "/courses", roles: ['teacher', 'sysAdmin'] },
+  
+  // 实验室管理员权限
+  { icon: Monitor, label: "实验室管理", path: "/admin/labs", roles: ['labAdmin', 'sysAdmin'] },
+  { icon: Settings, label: "预约审核", path: "/admin/reservations", roles: ['labAdmin', 'sysAdmin'] },
+  { icon: FileText, label: "规则配置", path: "/admin/rules", roles: ['labAdmin', 'sysAdmin'] },
+  
+  // 系统管理员权限（续）
+  { icon: ShieldCheck, label: "审批配置", path: "/admin/approval-config", roles: ['sysAdmin'] },
+  { icon: AlertTriangle, label: "违约管理", path: "/admin/violations", roles: ['sysAdmin'] },
+  { icon: FileSearch, label: "审计日志", path: "/admin/audit-logs", roles: ['sysAdmin'] },
+  { icon: TrendingUp, label: "数据统计导航", path: "/admin/statistics", roles: ['sysAdmin'] },
 ];
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";
@@ -241,84 +255,43 @@ function DashboardLayoutContent({
               <div className="bg-orange-50 border border-orange-200 rounded-lg p-2 group-data-[collapsible=icon]:hidden">
                 <div className="text-xs text-orange-600 font-semibold mb-2">🛠️ 开发模式</div>
                 <div className="flex flex-col gap-1.5">
+                  {/* 快速切换身份 */}
                   <button
-                    onClick={() => setDevRole(null)}
-                    className={`px-2 py-1.5 text-xs rounded-md transition-all text-left ${
-                      devRole === null 
-                        ? 'bg-gray-200 text-gray-800' 
-                        : 'bg-white text-gray-600 hover:bg-gray-100'
-                    }`}
+                    onClick={() => {
+                      const redirectUri = encodeURIComponent("http://localhost:3000/api/oauth/callback");
+                      window.location.href = `http://localhost:4000/oauth/authorize?redirect_uri=${redirectUri}&openid=sysadmin-001&name=系统管理员&email=sysadmin@example.com&role=sysAdmin`;
+                    }}
+                    className="w-full px-2 py-1.5 text-xs rounded-md transition-all text-left bg-red-50 text-red-700 hover:bg-red-100 border border-red-200"
                   >
-                    默认 ({user?.role})
+                    👑 系统管理员
                   </button>
                   <button
-                    onClick={() => setDevRole('admin')}
-                    className={`px-2 py-1.5 text-xs rounded-md transition-all text-left ${
-                      currentRole === 'admin' && devRole !== null
-                        ? 'bg-blue-500 text-white' 
-                        : 'bg-white text-blue-700 hover:bg-blue-50'
-                    }`}
+                    onClick={() => {
+                      const redirectUri = encodeURIComponent("http://localhost:3000/api/oauth/callback");
+                      window.location.href = `http://localhost:4000/oauth/authorize?redirect_uri=${redirectUri}&openid=labadmin-001&name=实验室管理员&email=labadmin@example.com&role=labAdmin`;
+                    }}
+                    className="w-full px-2 py-1.5 text-xs rounded-md transition-all text-left bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-200"
                   >
-                    👨‍💼 管理员
+                    🔧 实验室管理员
                   </button>
                   <button
-                    onClick={() => setDevRole('student')}
-                    className={`px-2 py-1.5 text-xs rounded-md transition-all text-left ${
-                      currentRole === 'student' && devRole !== null
-                        ? 'bg-green-500 text-white' 
-                        : 'bg-white text-green-700 hover:bg-green-50'
-                    }`}
+                    onClick={() => {
+                      const redirectUri = encodeURIComponent("http://localhost:3000/api/oauth/callback");
+                      window.location.href = `http://localhost:4000/oauth/authorize?redirect_uri=${redirectUri}&openid=teacher-001&name=教师&email=teacher@example.com&role=teacher`;
+                    }}
+                    className="w-full px-2 py-1.5 text-xs rounded-md transition-all text-left bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200"
+                  >
+                    👨‍🏫 教师
+                  </button>
+                  <button
+                    onClick={() => {
+                      const redirectUri = encodeURIComponent("http://localhost:3000/api/oauth/callback");
+                      window.location.href = `http://localhost:4000/oauth/authorize?redirect_uri=${redirectUri}&openid=student-001&name=学生&email=student@example.com&role=student`;
+                    }}
+                    className="w-full px-2 py-1.5 text-xs rounded-md transition-all text-left bg-green-50 text-green-700 hover:bg-green-100 border border-green-200"
                   >
                     👨‍🎓 学生
                   </button>
-                  
-                  {/* 快速登录测试账号 */}
-                  <div className="border-t border-orange-200 mt-2 pt-2">
-                    <div className="text-xs text-orange-600 font-semibold mb-1.5">快速登录</div>
-                    <button
-                      onClick={() => {
-                        window.location.href = "http://localhost:4000/oauth/authorize?openid=qq-admin-openid&name=Mock%20Admin&email=admin@example.com&role=admin";
-                      }}
-                      className="w-full px-2 py-1.5 text-xs rounded-md transition-all text-left bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 mb-1.5"
-                    >
-                      👨‍💼 管理员 (Mock Admin)
-                    </button>
-                    <button
-                      onClick={() => {
-                        window.location.href = "http://localhost:4000/oauth/authorize?openid=user_seed_1764601794784_002&name=李同学&email=student_1764601794784_2@example.com&role=user";
-                      }}
-                      className="w-full px-2 py-1.5 text-xs rounded-md transition-all text-left bg-red-50 text-red-700 hover:bg-red-100 border border-red-200 mb-1.5"
-                    >
-                      ⚠️ 李同学 (违约12分)
-                    </button>
-                    <button
-                      onClick={() => {
-                        window.location.href = "http://localhost:4000/oauth/authorize?openid=user_violation_1&name=王小红&email=wang.xiaohong@example.com&role=user";
-                      }}
-                      className="w-full px-2 py-1.5 text-xs rounded-md transition-all text-left bg-yellow-50 text-yellow-700 hover:bg-yellow-100 border border-yellow-200 mb-1.5"
-                    >
-                      👤 王小红 (违约5分)
-                    </button>
-                    <button
-                      onClick={() => {
-                        window.location.href = "http://localhost:4000/oauth/authorize?openid=user_violation_2&name=李大明&email=li.daming@example.com&role=user";
-                      }}
-                      className="w-full px-2 py-1.5 text-xs rounded-md transition-all text-left bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200 mb-1.5"
-                    >
-                      👤 李大明 (违约7分)
-                    </button>
-                    <button
-                      onClick={() => {
-                        window.location.href = "http://localhost:4000/oauth/authorize?openid=user_violation_3&name=张三强&email=zhang.sanqiang@example.com&role=user";
-                      }}
-                      className="w-full px-2 py-1.5 text-xs rounded-md transition-all text-left bg-red-100 text-red-800 hover:bg-red-200 border border-red-300 font-medium"
-                    >
-                      🚫 张三强 (黑名单中)
-                    </button>
-                  </div>
-                </div>
-                <div className="text-xs text-gray-500 mt-2">
-                  当前: <span className={isAdmin ? 'text-blue-600 font-medium' : 'text-green-600 font-medium'}>{isAdmin ? '管理员' : '学生'}</span>
                 </div>
               </div>
             )}

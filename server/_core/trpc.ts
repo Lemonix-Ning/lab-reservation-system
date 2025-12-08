@@ -31,7 +31,10 @@ export const adminProcedure = t.procedure.use(
   t.middleware(async opts => {
     const { ctx, next } = opts;
 
-    if (!ctx.user || ctx.user.role !== 'admin') {
+    // 支持新角色系统：允许 sysAdmin 和 labAdmin
+    const isAdmin = ctx.user && (ctx.user.role === 'sysAdmin' || ctx.user.role === 'labAdmin');
+    
+    if (!isAdmin) {
       throw new TRPCError({ code: "FORBIDDEN", message: NOT_ADMIN_ERR_MSG });
     }
 
@@ -41,5 +44,5 @@ export const adminProcedure = t.procedure.use(
         user: ctx.user,
       },
     });
-  }),
+  })
 );

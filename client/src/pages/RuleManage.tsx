@@ -1,4 +1,5 @@
 import { useAuth } from "@/_core/hooks/useAuth";
+import { useRole } from "@/contexts/RoleContext";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -14,6 +15,7 @@ import { Link, useLocation } from "wouter";
 
 export default function RuleManage() {
   const { user } = useAuth();
+  const { isLabAdmin, isSysAdmin } = useRole();
   const [, setLocation] = useLocation();
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [selectedRule, setSelectedRule] = useState<any>(null);
@@ -34,7 +36,7 @@ export default function RuleManage() {
     },
   });
 
-  if (user?.role !== 'admin') {
+  if (!isLabAdmin && !isSysAdmin) {
     setLocation('/');
     return null;
   }

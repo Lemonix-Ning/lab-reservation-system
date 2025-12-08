@@ -52,10 +52,12 @@ class XFSparkService {
   private apiPassword: string;
   private model: SparkModel;
   private isMock: boolean = false;
+  private cache: Map<string, { text: string; timestamp: number }> = new Map();
+  private readonly CACHE_TTL = 1 * 60 * 60 * 1000; // 1小时缓存
 
   constructor() {
     this.apiPassword = process.env.XFYUN_API_PASSWORD || "";
-    this.model = (process.env.XFYUN_MODEL as SparkModel) || "4.0Ultra";
+    this.model = (process.env.XFYUN_MODEL as SparkModel) || "lite";
 
     if (!this.apiPassword) {
       console.warn("[XFSpark] ⚠️ XFYUN_API_PASSWORD 未配置，将使用 Mock 模式");
@@ -63,6 +65,40 @@ class XFSparkService {
     } else {
       console.log(`[XFSpark] ✅ 已配置 HTTP 客户端，模型: ${this.model}`);
     }
+  }
+
+  /**
+   * 生成缓存键
+   */
+  private getCacheKey(input: string): string {
+    return Buffer.from(input).toString('base64');
+  }
+
+  /**
+   * 检查缓存
+   */
+  private getCache(input: string): string | null {
+    const key = this.getCacheKey(input);
+    const cached = this.cache.get(key);
+    
+    if (cached && Date.now() - cached.timestamp < this.CACHE_TTL) {
+      console.log(`[XFSpark] 📦 缓存命中`);
+      return cached.text;
+    }
+    
+    // 清理过期缓存
+    if (cached) {
+      this.cache.delete(key);
+    }
+    return null;
+  }
+
+  /**
+   * 设置缓存
+   */
+  private setCache(input: string, text: string): void {
+    const key = this.getCacheKey(input);
+    this.cache.set(key, { text, timestamp: Date.now() });
   }
 
   /**
@@ -84,7 +120,7 @@ class XFSparkService {
           model: this.model,
           messages,
           temperature: 0.7,
-          max_tokens: 2048,
+          max_tokens: 512,
         }),
       });
 
@@ -137,15 +173,18 @@ class XFSparkService {
    * 生成预约理由（AI 润色）
    */
   async generateReason(userInput: string, labName: string): Promise<string> {
+    const cacheKey = `reason:${labName}:${userInput}`;
+    const cached = this.getCache(cacheKey);
+    if (cached) return cached;
+
     const messages: Message[] = [
       {
         role: "system",
-        content: `你是一个实验室预约助手。用户需要预约"${labName}"实验室，请帮助用户优化预约理由，使其更加专业、清晰、有说服力。
-要求：
-1. 保持原意，适当扩展细节
-2. 语言正式但不生硬
-3. 控制在 50-100 字
-4. 直接输出润色后的理由，不要添加任何解释或前缀`,
+        content: `你是预约助手。用户要预约"${labName}"实验室。
+请优化预约理由，要求：
+1. 保留原意
+2. 50-100字
+3. 直接输出结果`,
       },
       {
         role: "user",
@@ -153,7 +192,9 @@ class XFSparkService {
       },
     ];
 
-    return this.chat(messages);
+    const result = await this.chat(messages);
+    this.setCache(cacheKey, result);
+    return result;
   }
 
   /**
@@ -167,30 +208,28 @@ class XFSparkService {
     topLabs: { name: string; count: number }[];
     weeklyTrend: { date: string; count: number }[];
   }): Promise<string> {
+    const cacheKey = `insight:${JSON.stringify(stats)}`;
+    const cached = this.getCache(cacheKey);
+    if (cached) return cached;
+
     const messages: Message[] = [
       {
         role: "system",
-        content: `你是一个实验室管理分析师。基于以下预约数据生成一份简洁的管理洞察报告。
+        content: `你是管理分析师。基于预约数据生成分析报告。
 要求：
-1. 分析预约趋势和热门实验室
-2. 指出潜在问题或优化建议
-3. 语言专业简洁
-4. 控制在 200 字以内
-5. 使用 Markdown 格式，包含标题和要点`,
+1. 分析趋势和问题
+2. 200字以内
+3. Markdown格式`,
       },
       {
         role: "user",
-        content: `当前数据：
-- 总预约数：${stats.totalReservations}
-- 待审核：${stats.pendingCount}
-- 已批准：${stats.approvedCount}
-- 已拒绝：${stats.rejectedCount}
-- 热门实验室：${stats.topLabs.map((l) => `${l.name}(${l.count}次)`).join("、")}
-- 近7天趋势：${stats.weeklyTrend.map((t) => `${t.date}:${t.count}`).join("、")}`,
+        content: `数据：总数${stats.totalReservations}，待审${stats.pendingCount}，已批${stats.approvedCount}，已拒${stats.rejectedCount}，热门实验室：${stats.topLabs.map((l) => `${l.name}(${l.count})`).join("、")}`,
       },
     ];
 
-    return this.chat(messages);
+    const result = await this.chat(messages);
+    this.setCache(cacheKey, result);
+    return result;
   }
 
   /**
