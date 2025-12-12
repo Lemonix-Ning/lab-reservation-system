@@ -19,6 +19,9 @@ import ViolationManage from "./pages/ViolationManage";
 import AuditLog from "./pages/AuditLog";
 import CourseManage from "./pages/CourseManage";
 import StudentCourses from "./pages/StudentCourses";
+import CalendarDashboard from "./pages/CalendarDashboard";
+import BlockedPeriodManage from "./pages/BlockedPeriodManage";
+import OpeningRuleManage from "./pages/OpeningRuleManage";
 
 function Router() {
   return (
@@ -29,6 +32,7 @@ function Router() {
       <Route path={"/notifications"} component={NotificationCenter} />
       <Route path={"/courses"} component={CourseManage} />
       <Route path={"/student/courses"} component={StudentCourses} />
+      <Route path={"/calendar"} component={CalendarDashboard} />
       <Route path={"/admin/labs"} component={LabRoomManage} />
       <Route path={"/admin/devices"} component={DeviceManage} />
       <Route path={"/admin/reservations"} component={ReservationManage} />
@@ -37,6 +41,8 @@ function Router() {
       <Route path={"/admin/approval-config"} component={ApprovalConfig} />
       <Route path={"/admin/violations"} component={ViolationManage} />
       <Route path={"/admin/audit-logs"} component={AuditLog} />
+      <Route path={"/admin/opening-rules"} component={OpeningRuleManage} />
+      <Route path={"/admin/blocked-periods"} component={BlockedPeriodManage} />
       <Route path={"/404"} component={NotFound} />
       <Route component={NotFound} />
     </Switch>

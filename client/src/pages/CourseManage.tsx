@@ -81,6 +81,7 @@ export default function CourseManage() {
   const { isTeacher, isSysAdmin } = useRole();
 
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
+  const [isEditCourseDialogOpen, setIsEditCourseDialogOpen] = useState(false);
   const [isStudentDialogOpen, setIsStudentDialogOpen] = useState(false);
   const [isAddStudentDialogOpen, setIsAddStudentDialogOpen] = useState(false);
   const [isReservationDialogOpen, setIsReservationDialogOpen] = useState(false);
@@ -90,19 +91,34 @@ export default function CourseManage() {
   const [selectedClassFilter, setSelectedClassFilter] = useState<string>("all");
   const [deleteConfirm, setDeleteConfirm] = useState<{
     type: "student" | "reservation";
-    courseId: number;
+    courseId?: number;
     id: number;
     name: string;
   } | null>(null);
 
   const [formData, setFormData] = useState({
-    courseNo: "",
+    name: "",
+    description: "",
+    semester: "",
+  });
+
+  const [editFormData, setEditFormData] = useState({
     name: "",
     description: "",
     semester: "",
   });
 
   const [reservationData, setReservationData] = useState({
+    labId: "",
+    title: "",
+    reason: "",
+    date: "",
+    startTime: "",
+    endTime: "",
+  });
+
+  const [editingReservation, setEditingReservation] = useState<any>(null);
+  const [editReservationData, setEditReservationData] = useState({
     labId: "",
     title: "",
     reason: "",
@@ -149,7 +165,7 @@ export default function CourseManage() {
     { courseId: selectedCourse?.id || 0 },
     { enabled: !!selectedCourse }
   );
-  const { data: courseReservations = [] } = trpc.courseReservation.getAllByCourse.useQuery(
+  const { data: courseReservations = [], refetch: refetchCourseReservations } = trpc.courseReservation.getAllByCourse.useQuery(
     { courseId: selectedCourse?.id || 0 },
     { enabled: !!selectedCourse }
   );
@@ -190,7 +206,7 @@ export default function CourseManage() {
   const createCourseMutation = trpc.course.create.useMutation({
     onSuccess: () => {
       toast.success("课程创建成功");
-      setFormData({ courseNo: "", name: "", description: "", semester: "" });
+      setFormData({ name: "", description: "", semester: "" });
       setIsCreateDialogOpen(false);
       refetch();
     },
@@ -217,33 +233,61 @@ export default function CourseManage() {
     onError: (error) => toast.error(`移除失败: ${error.message}`),
   });
 
+  // const updateCourseMutation = trpc.course.update.useMutation({
+  //   onSuccess: () => {
+  //     toast.success("课程已成功更新");
+  //     setIsEditCourseDialogOpen(false);
+  //     refetch();
+  //   },
+  //   onError: (error) => toast.error(`更新失败: ${error.message}`),
+  // });
+
+  const deleteLabRoomMutation = trpc.labRoom.delete.useMutation({
+    onSuccess: async () => {
+      toast.success("实验室已成功删除");
+      setDeleteConfirm(null);
+      await refetchCourseReservations();
+    },
+    onError: (error) => toast.error(`删除失败: ${error.message}`),
+  });
+
   const reserveLabMutation = trpc.courseReservation.create.useMutation({
-    onSuccess: () => {
+    onSuccess: async () => {
       toast.success("实验室预约成功");
       setReservationData({ labId: "", title: "", reason: "", date: "", startTime: "", endTime: "" });
-      setIsReservationDialogOpen(false);
-      refetch();
+      // 立即刷新课程预约列表
+      await refetchCourseReservations();
     },
     onError: (error) => toast.error(`预约失败: ${error.message}`),
   });
 
+  // const updateReservationMutation = trpc.courseReservation.update.useMutation({
+  //   onSuccess: async () => {
+  //     toast.success("预约已成功更新");
+  //     setEditingReservation(null);
+  //     await refetchCourseReservations();
+  //   },
+  //   onError: (error: any) => toast.error(`更新失败: ${error.message}`),
+  // });
+
   const cancelReservationMutation = trpc.courseReservation.cancel.useMutation({
-    onSuccess: () => {
+    onSuccess: async () => {
       toast.success("预约已取消");
       setDeleteConfirm(null);
-      refetch();
+      // 立即刷新课程预约列表
+      await refetchCourseReservations();
     },
     onError: (error) => toast.error(`取消失败: ${error.message}`),
   });
 
   // 处理函数
   const handleCreateCourse = () => {
-    if (!formData.courseNo || !formData.name || !formData.semester) {
+    if (!formData.name || !formData.semester) {
       toast.error("请填写必填字段");
       return;
     }
     createCourseMutation.mutate({
-      courseNo: formData.courseNo,
+      courseNo: formData.name, // 使用课程名作为课程号
       name: formData.name,
       description: formData.description?.trim() || "",
       semester: formData.semester,
@@ -263,6 +307,66 @@ export default function CourseManage() {
       courseId: selectedCourse.id,
       studentOpenIds: selectedStudentOpenIds,
     });
+  };
+
+  const handleEditCourse = () => {
+    if (!selectedCourse) {
+      toast.error("请先选择课程");
+      return;
+    }
+    if (!editFormData.name || !editFormData.semester) {
+      toast.error("请填写必填字段");
+      return;
+    }
+    toast.error("暂不支持课程更新功能");
+    // TODO: 实现课程更新功能
+    // updateCourseMutation.mutate({
+    //   courseId: selectedCourse.id,
+    //   name: editFormData.name,
+    //   description: editFormData.description || null,
+    //   semester: editFormData.semester,
+    // });
+  };
+
+  const handleEditReservation = (reservation: any) => {
+    const startDateTime = new Date(reservation.startTime);
+    const endDateTime = new Date(reservation.endTime);
+    const dateStr = startDateTime.toISOString().split('T')[0];
+    const startTimeStr = startDateTime.toTimeString().slice(0, 5);
+    const endTimeStr = endDateTime.toTimeString().slice(0, 5);
+
+    setEditingReservation(reservation);
+    setEditReservationData({
+      labId: reservation.labId.toString(),
+      title: reservation.title,
+      reason: reservation.reason || "",
+      date: dateStr,
+      startTime: startTimeStr,
+      endTime: endTimeStr,
+    });
+  };
+
+  const handleUpdateReservation = () => {
+    if (!editReservationData.labId || !editReservationData.title || !editReservationData.date || !editReservationData.startTime || !editReservationData.endTime) {
+      toast.error("请填写所有必填字段");
+      return;
+    }
+    const startDateTime = new Date(`${editReservationData.date}T${editReservationData.startTime}:00`);
+    const endDateTime = new Date(`${editReservationData.date}T${editReservationData.endTime}:00`);
+    if (startDateTime >= endDateTime) {
+      toast.error("开始时间必须早于结束时间");
+      return;
+    }
+    toast.error("暂不支持预约更新功能");
+    // TODO: 实现预约更新功能
+    // updateReservationMutation.mutate({
+    //   reservationId: editingReservation.id,
+    //   labId: parseInt(editReservationData.labId),
+    //   title: editReservationData.title,
+    //   reason: editReservationData.reason || undefined,
+    //   startTime: startDateTime,
+    //   endTime: endDateTime,
+    // });
   };
 
   const handleReserveLab = () => {
@@ -387,7 +491,7 @@ export default function CourseManage() {
                 </div>
               </CardContent>
 
-              <CardFooter className="pt-0 pb-4 px-4 grid grid-cols-2 gap-2">
+              <CardFooter className="pt-0 pb-3 px-4 grid grid-cols-2 gap-2">
                 <Button
                   variant="outline"
                   size="sm"
@@ -416,12 +520,28 @@ export default function CourseManage() {
                   className="w-full"
                   onClick={() => {
                     setSelectedCourse(course);
+                    setEditFormData({
+                      name: course.name,
+                      description: course.description || "",
+                      semester: course.semester,
+                    });
+                    setIsEditCourseDialogOpen(true);
+                  }}
+                >
+                  修改课程
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="w-full"
+                  onClick={() => {
+                    setSelectedCourse(course);
                     setSelectedStudentOpenIds([]);
                     setStudentSearchKeyword("");
                     setIsAddStudentDialogOpen(true);
                   }}
                 >
-                  <Plus className="h-3 w-3 mr-1" /> 快速添加学生
+                  <Plus className="h-3 w-3 mr-1" /> 添加学生
                 </Button>
               </CardFooter>
             </Card>
@@ -437,22 +557,16 @@ export default function CourseManage() {
             <DialogDescription>填写课程基本信息以创建新课程。</DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>课程号 <span className="text-red-500">*</span></Label>
-                <Input placeholder="如: CS101" value={formData.courseNo} onChange={(e) => setFormData({ ...formData, courseNo: e.target.value })} />
-              </div>
-              <div className="space-y-2">
-                <Label>学期 <span className="text-red-500">*</span></Label>
-                <Select value={formData.semester} onValueChange={(v) => setFormData({ ...formData, semester: v })}>
-                  <SelectTrigger><SelectValue placeholder="选择学期" /></SelectTrigger>
-                  <SelectContent>
-                    {semesterOptions.map((opt) => (
-                      <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+            <div className="space-y-2">
+              <Label>学期 <span className="text-red-500">*</span></Label>
+              <Select value={formData.semester} onValueChange={(v) => setFormData({ ...formData, semester: v })}>
+                <SelectTrigger><SelectValue placeholder="选择学期" /></SelectTrigger>
+                <SelectContent>
+                  {semesterOptions.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="space-y-2">
               <Label>课程名称 <span className="text-red-500">*</span></Label>
@@ -467,6 +581,43 @@ export default function CourseManage() {
             <Button variant="ghost" onClick={() => setIsCreateDialogOpen(false)}>取消</Button>
             <Button onClick={handleCreateCourse} disabled={createCourseMutation.isPending} className="bg-indigo-600 hover:bg-indigo-700">
               {createCourseMutation.isPending ? "创建中..." : "确认创建"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 1.5. 修改课程 */}
+      <Dialog open={isEditCourseDialogOpen} onOpenChange={setIsEditCourseDialogOpen}>
+        <DialogContent className="sm:max-w-[500px] rounded-xl">
+          <DialogHeader>
+            <DialogTitle className="text-xl">修改课程</DialogTitle>
+            <DialogDescription>更新课程的基本信息。</DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="space-y-2">
+              <Label>学期 <span className="text-red-500">*</span></Label>
+              <Select value={editFormData.semester} onValueChange={(v) => setEditFormData({ ...editFormData, semester: v })}>
+                <SelectTrigger><SelectValue placeholder="选择学期" /></SelectTrigger>
+                <SelectContent>
+                  {semesterOptions.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>课程名称 <span className="text-red-500">*</span></Label>
+              <Input placeholder="如: 高级数据结构" value={editFormData.name} onChange={(e) => setEditFormData({ ...editFormData, name: e.target.value })} />
+            </div>
+            <div className="space-y-2">
+              <Label>描述</Label>
+              <Input placeholder="简短的课程描述..." value={editFormData.description} onChange={(e) => setEditFormData({ ...editFormData, description: e.target.value })} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setIsEditCourseDialogOpen(false)}>取消</Button>
+            <Button disabled className="bg-indigo-600 hover:bg-indigo-700">
+              {"确认修改"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -648,32 +799,32 @@ export default function CourseManage() {
 
       {/* 4. 实验室预约 */}
       <Dialog open={isReservationDialogOpen} onOpenChange={setIsReservationDialogOpen}>
-        <DialogContent className="max-w-5xl rounded-xl p-0 overflow-hidden h-[80vh] flex flex-col">
-          <div className="p-6 border-b bg-slate-50 flex justify-between items-center">
+        <DialogContent className="w-[95vw] max-w-[95vw] rounded-xl p-0 overflow-hidden h-[95vh] flex flex-col">
+          <div className="p-8 border-b bg-slate-50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
             <div>
-              <DialogTitle className="text-xl text-slate-900">实验室预约</DialogTitle>
-              <DialogDescription className="text-slate-500">
+              <DialogTitle className="text-2xl text-slate-900">实验室预约</DialogTitle>
+              <DialogDescription className="text-slate-600 text-base">
                 当前课程: <span className="font-semibold text-indigo-600">{selectedCourse?.name}</span>
               </DialogDescription>
             </div>
-            <div className="bg-white px-3 py-1 rounded-full border text-xs text-slate-500 flex items-center gap-2">
-              <History className="h-3 w-3" />
+            <div className="bg-white px-4 py-2 rounded-full border text-sm text-slate-600 flex items-center gap-2 whitespace-nowrap">
+              <History className="h-4 w-4" />
               历史记录: {courseReservations.length} 条
             </div>
           </div>
 
-          <div className="flex flex-1 overflow-hidden">
+          <div className="flex flex-col lg:flex-row flex-1 overflow-hidden">
             {/* 左侧：表单 */}
-            <div className="w-1/3 p-6 overflow-y-auto border-r bg-white">
-              <h3 className="font-semibold text-slate-800 mb-4 flex items-center gap-2">
+            <div className="w-full lg:w-[50%] p-6 overflow-y-auto border-r border-b lg:border-b-0 bg-white">
+              <h3 className="font-bold text-base text-slate-800 mb-4 flex items-center gap-2">
                 <Plus className="h-4 w-4 bg-slate-100 rounded p-0.5" />
                 新建预约申请
               </h3>
               <div className="space-y-4">
                 <div>
-                  <Label>选择实验室</Label>
+                  <Label className="text-sm">选择实验室</Label>
                   <Select value={reservationData.labId} onValueChange={(v) => setReservationData({ ...reservationData, labId: v })}>
-                    <SelectTrigger className="mt-1.5"><SelectValue placeholder="选择实验室" /></SelectTrigger>
+                    <SelectTrigger className="mt-1.5 h-9 text-sm"><SelectValue placeholder="选择实验室" /></SelectTrigger>
                     <SelectContent>
                       {labs.map((lab: any) => (
                         <SelectItem key={lab.id} value={lab.id.toString()}>
@@ -683,29 +834,33 @@ export default function CourseManage() {
                     </SelectContent>
                   </Select>
                 </div>
-                <div>
-                  <Label>标题</Label>
-                  <Input className="mt-1.5" placeholder="实验课名称" value={reservationData.title} onChange={(e) => setReservationData({ ...reservationData, title: e.target.value })} />
-                </div>
-                <div>
-                  <Label>日期</Label>
-                  <Input className="mt-1.5" type="date" value={reservationData.date} onChange={(e) => setReservationData({ ...reservationData, date: e.target.value })} />
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <Label>开始时间</Label>
-                    <Input className="mt-1.5" type="time" value={reservationData.startTime} onChange={(e) => setReservationData({ ...reservationData, startTime: e.target.value })} />
+                {reservationData.labId && (
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm">
+                    <p className="text-blue-800 font-semibold mb-2">已选实验室</p>
+                    <p className="text-blue-700 font-medium text-sm">{labs.find(l => l.id.toString() === reservationData.labId)?.name}</p>
                   </div>
-                  <div>
-                    <Label>结束时间</Label>
-                    <Input className="mt-1.5" type="time" value={reservationData.endTime} onChange={(e) => setReservationData({ ...reservationData, endTime: e.target.value })} />
-                  </div>
+                )}
+                <div>
+                  <Label className="text-sm">标题</Label>
+                  <Input className="mt-1.5 h-8 text-sm" placeholder="实验课名称" value={reservationData.title} onChange={(e) => setReservationData({ ...reservationData, title: e.target.value })} />
                 </div>
                 <div>
-                  <Label>备注原因 (可选)</Label>
-                  <Input className="mt-1.5" placeholder="特殊说明..." value={reservationData.reason} onChange={(e) => setReservationData({ ...reservationData, reason: e.target.value })} />
+                  <Label className="text-sm">日期</Label>
+                  <Input className="mt-1.5 h-8 text-sm" type="date" value={reservationData.date} onChange={(e) => setReservationData({ ...reservationData, date: e.target.value })} />
                 </div>
-                <Button onClick={handleReserveLab} disabled={reserveLabMutation.isPending} className="w-full mt-4 bg-indigo-600 hover:bg-indigo-700">
+                <div>
+                  <Label className="text-sm">开始时间</Label>
+                  <Input className="mt-1.5 h-8 text-sm w-full" type="time" value={reservationData.startTime} onChange={(e) => setReservationData({ ...reservationData, startTime: e.target.value })} />
+                </div>
+                <div>
+                  <Label className="text-sm">结束时间</Label>
+                  <Input className="mt-1.5 h-8 text-sm w-full" type="time" value={reservationData.endTime} onChange={(e) => setReservationData({ ...reservationData, endTime: e.target.value })} />
+                </div>
+                <div>
+                  <Label className="text-sm">备注原因 (可选)</Label>
+                  <Input className="mt-1.5 h-8 text-sm" placeholder="特殊说明..." value={reservationData.reason} onChange={(e) => setReservationData({ ...reservationData, reason: e.target.value })} />
+                </div>
+                <Button onClick={handleReserveLab} disabled={reserveLabMutation.isPending} className="w-full mt-4 h-9 text-sm bg-indigo-600 hover:bg-indigo-700">
                   {reserveLabMutation.isPending ? "提交中..." : "提交申请"}
                 </Button>
               </div>
@@ -713,16 +868,16 @@ export default function CourseManage() {
 
             {/* 右侧：列表 */}
             <div className="flex-1 bg-slate-50/50 p-6 overflow-y-auto">
-              <h3 className="font-semibold text-slate-800 mb-4 flex items-center gap-2">
+              <h3 className="font-bold text-base text-slate-800 mb-4 flex items-center gap-2">
                 <Clock className="h-4 w-4 bg-slate-200 rounded p-0.5" />
                 预约记录
               </h3>
               {courseReservations.length === 0 ? (
-                <div className="h-40 flex flex-col items-center justify-center text-slate-400 border-2 border-dashed border-slate-200 rounded-lg">
+                <div className="h-32 flex flex-col items-center justify-center text-slate-400 border-2 border-dashed border-slate-200 rounded-lg text-sm">
                   <p>暂无预约记录</p>
                 </div>
               ) : (
-                <div className="space-y-3">
+                <div className="space-y-2">
                   {courseReservations.map((reservation: any) => {
                     const startTime = new Date(reservation.startTime).toLocaleString("zh-CN", {
                       month: "2-digit",
@@ -753,21 +908,54 @@ export default function CourseManage() {
                     }[status] || "未知";
 
                     return (
-                      <div key={reservation.id} className="border rounded p-2 text-sm bg-gray-50">
-                        <div className="flex items-start justify-between mb-1">
-                          <div>
-                            <p className="font-medium">{reservation.title}</p>
-                            <p className="text-xs text-gray-600">{startTime} - {endTime}</p>
+                      <div key={reservation.id} className="border rounded p-3 text-xs bg-gray-50 hover:bg-gray-100 transition-colors">
+                        <div className="flex items-start justify-between mb-2">
+                          <div className="flex-1">
+                            <p className="font-medium text-slate-800 text-sm">{reservation.title}</p>
+                            {reservation.labRoom && (
+                              <p className="text-xs text-blue-600 mt-1">
+                                📍 {reservation.labRoom.name}
+                                {reservation.labRoom.location && ` - ${reservation.labRoom.location}`}
+                              </p>
+                            )}
+                            <p className="text-xs text-gray-600 mt-1">{startTime} - {endTime}</p>
                           </div>
-                          <span className={`px-2 py-1 rounded text-xs font-medium ${statusColor}`}>
+                          <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${statusColor} ml-2 flex-shrink-0`}>
                             {statusText}
                           </span>
                         </div>
-                        {(status === "pending" || status === "approved") && (
+                        {status === "pending" && (
+                          <div className="flex gap-1 mt-2">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="flex-1 text-indigo-600 hover:bg-indigo-100 hover:text-indigo-700 text-xs h-7 font-medium"
+                              onClick={() => handleEditReservation(reservation)}
+                            >
+                              修改
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="flex-1 text-red-600 hover:bg-red-100 hover:text-red-700 text-xs h-7 font-medium"
+                              onClick={() =>
+                                setDeleteConfirm({
+                                  type: "reservation",
+                                  courseId: selectedCourse.id,
+                                  id: reservation.id,
+                                  name: `${reservation.title} 的预约`,
+                                })
+                              }
+                            >
+                              取消
+                            </Button>
+                          </div>
+                        )}
+                        {status === "approved" && (
                           <Button
                             variant="ghost"
                             size="sm"
-                            className="w-full text-red-600 hover:bg-red-100 hover:text-red-700 text-xs h-7"
+                            className="w-full text-red-600 hover:bg-red-100 hover:text-red-700 text-xs h-7 font-medium mt-2"
                             onClick={() =>
                               setDeleteConfirm({
                                 type: "reservation",
@@ -790,6 +978,59 @@ export default function CourseManage() {
         </DialogContent>
       </Dialog>
 
+      {/* 编辑预约 */}
+      <Dialog open={!!editingReservation} onOpenChange={(open) => !open && setEditingReservation(null)}>
+        <DialogContent className="max-w-md rounded-xl">
+          <DialogHeader>
+            <DialogTitle className="text-lg">修改预约</DialogTitle>
+            <DialogDescription>更新预约的基本信息（仅待审批状态可修改）</DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-3 py-4">
+            <div className="space-y-1.5">
+              <Label className="text-sm">选择实验室</Label>
+              <Select value={editReservationData.labId} onValueChange={(v) => setEditReservationData({ ...editReservationData, labId: v })}>
+                <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="选择实验室" /></SelectTrigger>
+                <SelectContent>
+                  {labs.map((lab: any) => (
+                    <SelectItem key={lab.id} value={lab.id.toString()}>
+                      {lab.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-sm">标题</Label>
+              <Input className="h-8 text-sm" placeholder="预约标题" value={editReservationData.title} onChange={(e) => setEditReservationData({ ...editReservationData, title: e.target.value })} />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-sm">日期</Label>
+              <Input className="h-8 text-sm" type="date" value={editReservationData.date} onChange={(e) => setEditReservationData({ ...editReservationData, date: e.target.value })} />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1.5">
+                <Label className="text-sm">开始时间</Label>
+                <Input className="h-8 text-sm" type="time" value={editReservationData.startTime} onChange={(e) => setEditReservationData({ ...editReservationData, startTime: e.target.value })} />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-sm">结束时间</Label>
+                <Input className="h-8 text-sm" type="time" value={editReservationData.endTime} onChange={(e) => setEditReservationData({ ...editReservationData, endTime: e.target.value })} />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-sm">备注</Label>
+              <Input className="h-8 text-sm" placeholder="可选" value={editReservationData.reason} onChange={(e) => setEditReservationData({ ...editReservationData, reason: e.target.value })} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" size="sm" onClick={() => setEditingReservation(null)}>取消</Button>
+            <Button size="sm" disabled className="bg-indigo-600 hover:bg-indigo-700">
+              {"保存修改"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* 确认删除/取消 */}
       <AlertDialog open={!!deleteConfirm} onOpenChange={(open) => !open && setDeleteConfirm(null)}>
         <AlertDialogContent className="rounded-xl">
@@ -798,7 +1039,9 @@ export default function CourseManage() {
               <AlertCircle className="h-6 w-6 text-red-600" />
             </div>
             <AlertDialogTitle className="text-center">
-              {deleteConfirm?.type === "student" ? "移除学生" : "取消预约"}
+              {deleteConfirm?.type === "student" 
+                ? "移除学生" 
+                : "取消预约"}
             </AlertDialogTitle>
             <AlertDialogDescription className="text-center">
               {deleteConfirm?.type === "student"
@@ -814,7 +1057,7 @@ export default function CourseManage() {
                 if (!deleteConfirm) return;
                 if (deleteConfirm.type === "student") {
                   removeStudentMutation.mutate({
-                    courseId: deleteConfirm.courseId,
+                    courseId: deleteConfirm.courseId!,
                     studentId: deleteConfirm.id,
                   });
                 } else {
@@ -825,7 +1068,9 @@ export default function CourseManage() {
               }}
               disabled={removeStudentMutation.isPending || cancelReservationMutation.isPending}
             >
-              {removeStudentMutation.isPending || cancelReservationMutation.isPending ? "处理中..." : `确认${deleteConfirm?.type === "student" ? "移除" : "取消"}`}
+              {removeStudentMutation.isPending || cancelReservationMutation.isPending 
+                ? "处理中..." 
+                : `确认${deleteConfirm?.type === "student" ? "移除" : "取消"}`}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

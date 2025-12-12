@@ -28,6 +28,7 @@ export default function ReservationManage() {
   const [, setLocation] = useLocation();
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [selectedType, setSelectedType] = useState<'personal' | 'course'>('personal');
   const [rejectReason, setRejectReason] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize] = useState(10);
@@ -72,7 +73,10 @@ export default function ReservationManage() {
       toast.error("请填写拒绝原因");
       return;
     }
-    rejectMutation.mutate({ id: selectedId, rejectReason });
+    rejectMutation.mutate({ 
+      id: selectedId, 
+      rejectReason,
+    });
   };
 
   return (
@@ -124,16 +128,28 @@ export default function ReservationManage() {
                   </TableHeader>
                   <TableBody>
                     {reservationsPage?.items.map((reservation: any) => (
-                      <TableRow key={reservation.id}>
-                        <TableCell>{reservation.labRoom?.name || '未知'}</TableCell>
+                      <TableRow key={`${reservation.reservationType || 'personal'}-${reservation.id}`}>
                         <TableCell>
-                          <div>{reservation.title}</div>
-                          {reservation.reason && (
-                            <div className="text-xs text-gray-500 mt-1">{reservation.reason}</div>
-                          )}
+                          <div className="flex flex-col gap-1">
+                            <span>{reservation.labRoom?.name || '未知'}</span>
+                            <span className="text-xs text-gray-400 px-1.5 py-0.5 bg-gray-50 rounded w-fit">
+                              {reservation.reservationType === 'course' ? '课程预约' : '个人预约'}
+                            </span>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div>
+                            <div className="font-medium">{reservation.title}</div>
+                            {reservation.course && reservation.reservationType === 'course' && (
+                              <div className="text-xs text-blue-600 mt-1">课程: {reservation.course.name}</div>
+                            )}
+                            {reservation.reason && (
+                              <div className="text-xs text-gray-500 mt-1">{reservation.reason}</div>
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell>{reservation.userId}</TableCell>
-                        <TableCell>{reservation.peopleCount}</TableCell>
+                        <TableCell>{reservation.peopleCount || '-'}</TableCell>
                         <TableCell>
                           {format(new Date(reservation.startTime), "yyyy-MM-dd HH:mm")}
                         </TableCell>
@@ -155,7 +171,9 @@ export default function ReservationManage() {
                             <div className="flex gap-2">
                               <Button
                                 size="sm"
-                                onClick={() => approveMutation.mutate({ id: reservation.id })}
+                                onClick={() => approveMutation.mutate({ 
+                                  id: reservation.id,
+                                })}
                                 disabled={approveMutation.isPending}
                               >
                                 通过
@@ -165,6 +183,7 @@ export default function ReservationManage() {
                                 variant="outline"
                                 onClick={() => {
                                   setSelectedId(reservation.id);
+                                  setSelectedType(reservation.reservationType || 'personal');
                                   setRejectDialogOpen(true);
                                 }}
                               >
@@ -193,7 +212,14 @@ export default function ReservationManage() {
         </div>
       </main>
 
-      <Dialog open={rejectDialogOpen} onOpenChange={setRejectDialogOpen}>
+      <Dialog open={rejectDialogOpen} onOpenChange={(open) => {
+        setRejectDialogOpen(open);
+        if (!open) {
+          setRejectReason("");
+          setSelectedId(null);
+          setSelectedType('personal');
+        }
+      }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>拒绝预约</DialogTitle>

@@ -48,22 +48,34 @@ import {
 import { format } from "date-fns";
 
 export default function AuditLogPage() {
+  // 从URL读取targetId参数
+  const urlParams = new URLSearchParams(window.location.search);
+  const targetIdFromUrl = urlParams.get('targetId');
+  
   const [filters, setFilters] = useState({
     type: "all",
     operatorId: "",
     startDate: "",
     endDate: "",
+    targetId: targetIdFromUrl || "",
   });
   const [selectedLog, setSelectedLog] = useState<any>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
 
-  const { data: logs = [], isLoading, refetch } = trpc.audit.getLogs.useQuery({
+  const { data: allLogs = [], isLoading, refetch } = trpc.audit.getLogs.useQuery({
     operationType: filters.type && filters.type !== "all" ? filters.type : undefined,
     targetType: undefined,
     startDate: filters.startDate ? new Date(filters.startDate) : undefined,
     endDate: filters.endDate ? new Date(filters.endDate) : undefined,
-    limit: 100,
+    limit: 1000, // 增加限制以支持前端过滤
   });
+
+  // 前端过滤targetId
+  const logs = useMemo(() => {
+    if (!filters.targetId) return allLogs;
+    const targetIdNum = parseInt(filters.targetId);
+    return allLogs.filter((log: any) => log.targetId === targetIdNum);
+  }, [allLogs, filters.targetId]);
 
   const operationTypeMap: Record<
     string,
@@ -116,6 +128,7 @@ export default function AuditLogPage() {
     setFilters({
       type: "all",
       operatorId: "",
+      targetId: "",
       startDate: "",
       endDate: "",
     });
@@ -139,6 +152,12 @@ export default function AuditLogPage() {
             <Shield className="h-6 w-6 text-slate-700" /> 审计日志
           </h1>
           <p className="text-slate-500 text-sm mt-1">监控系统关键操作，追踪安全事件与变更记录。</p>
+          {filters.targetId && (
+            <div className="mt-2 text-xs text-blue-600 bg-blue-50 border border-blue-200 rounded-md px-3 py-1 inline-flex items-center gap-2">
+              <FileText className="w-3 h-3" />
+              正在查看目标ID为 <span className="font-mono font-bold">{filters.targetId}</span> 的相关日志
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={() => refetch()} className="gap-2 bg-white">
@@ -184,6 +203,13 @@ export default function AuditLogPage() {
               />
             </div>
 
+            <Input
+              placeholder="目标ID"
+              className="w-full sm:w-32 bg-slate-50 border-slate-200 focus:bg-white transition-colors"
+              value={filters.targetId}
+              onChange={(e) => setFilters({ ...filters, targetId: e.target.value })}
+            />
+
             <Select value={filters.type} onValueChange={(val) => setFilters({ ...filters, type: val })}>
               <SelectTrigger className="h-10 w-full sm:w-40 rounded-md border-slate-200 bg-slate-50">
                 <SelectValue placeholder="所有类型" />
@@ -214,7 +240,7 @@ export default function AuditLogPage() {
             </div>
           </div>
 
-          {(filters.type !== "all" || filters.operatorId || filters.startDate || filters.endDate) && (
+          {(filters.type !== "all" || filters.operatorId || filters.targetId || filters.startDate || filters.endDate) && (
             <Button variant="ghost" size="sm" onClick={handleClearFilters} className="text-slate-500 hover:text-red-600">
               <X className="mr-2 h-4 w-4" /> 重置筛选
             </Button>
@@ -246,7 +272,12 @@ export default function AuditLogPage() {
                   <TableCell colSpan={6} className="px-6 py-12 text-center text-slate-500 bg-slate-50/30">
                     <div className="flex flex-col items-center justify-center">
                       <Shield className="h-10 w-10 text-slate-200 mb-2" />
-                      暂无相关日志记录
+                      <p className="text-sm">暂无相关日志记录</p>
+                      {filters.targetId && (
+                        <p className="text-xs text-slate-400 mt-2">
+                          当前筛选：预约ID = {filters.targetId}
+                        </p>
+                      )}
                     </div>
                   </TableCell>
                 </TableRow>

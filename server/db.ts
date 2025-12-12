@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, lte, or, sql, lt, gt } from "drizzle-orm";
+import { and, desc, eq, gte, lte, or, sql, lt, gt, ne } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { InsertLabReservation, InsertLabRoom, InsertLabReserveRule, InsertUser, InsertLabDevice, InsertNotification, labReservations, labRooms, labReserveRules, users, labDevices, notifications, approvalConfigs, approvalHistories, violationRecords, blacklist, auditLogs, InsertApprovalConfig, InsertApprovalHistory, InsertViolationRecord, InsertBlacklist, InsertAuditLog, courses, courseReservations, courseStudents, openingRules, blockedPeriods, InsertCourse, InsertCourseReservation, InsertCourseStudent, InsertOpeningRule, InsertBlockedPeriod, classes, classStudents, InsertClass, InsertClassStudent } from "../drizzle/schema";
 import { ENV } from './_core/env';
@@ -89,6 +89,18 @@ export async function getUserByOpenId(openId: string) {
   return result.length > 0 ? result[0] : undefined;
 }
 
+export async function getUserById(userId: number) {
+  const db = await getDb();
+  if (!db) {
+    console.warn("[Database] Cannot get user: database not available");
+    return undefined;
+  }
+
+  const result = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+
+  return result.length > 0 ? result[0] : undefined;
+}
+
 export async function getAllUsers() {
   const db = await getDb();
   if (!db) return [];
@@ -148,13 +160,13 @@ export async function getReservationById(id: number) {
 export async function getUserReservations(userId: number) {
   const db = await getDb();
   if (!db) return [];
-  return await db.select().from(labReservations).where(eq(labReservations.userId, userId)).orderBy(desc(labReservations.createdAt));
+  return await db.select().from(labReservations).where(eq(labReservations.userId, userId)).orderBy(desc(labReservations.updatedAt), desc(labReservations.createdAt));
 }
 
 export async function getAllReservations() {
   const db = await getDb();
   if (!db) return [];
-  return await db.select().from(labReservations).orderBy(desc(labReservations.createdAt));
+  return await db.select().from(labReservations).orderBy(desc(labReservations.updatedAt), desc(labReservations.createdAt));
 }
 
 export type ReservationPageResult = {
@@ -191,7 +203,11 @@ export async function getReservationsPaged(opts: { page?: number; pageSize?: num
 
   const items = await db.select().from(labReservations)
     .where(whereClauses.length > 0 ? and(...whereClauses) : undefined)
-    .orderBy(desc(labReservations.createdAt))
+    // 按更新时间倒序排列，确保最新操作（新增、修改、审核等）始终排在最前
+    .orderBy(
+      desc(labReservations.updatedAt),
+      desc(labReservations.createdAt)
+    )
     .limit(pageSize)
     .offset(offset);
 
@@ -201,7 +217,12 @@ export async function getReservationsPaged(opts: { page?: number; pageSize?: num
 export async function updateReservation(id: number, data: Partial<InsertLabReservation>) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  await db.update(labReservations).set(data).where(eq(labReservations.id, id));
+  
+  // 不手动设置 updatedAt，让数据库的 ON UPDATE CURRENT_TIMESTAMP 自动更新
+  // 这样可以确保时区一致，并且时间戳准确，排序正确
+  const updateData = { ...data };
+  
+  await db.update(labReservations).set(updateData).where(eq(labReservations.id, id));
 }
 
 /**
@@ -228,6 +249,113 @@ export async function checkTimeConflict(labId: number, startTime: Date, endTime:
   
   const conflicts = await db.select().from(labReservations).where(and(...conditions)).limit(1);
   return conflicts.length > 0;
+}
+
+/**
+ * 获取与指定时间段冲突的所有预约详情
+ * 用于显示具体冲突信息
+ */
+export async function getConflictingReservations(labId: number, startTime: Date, endTime: Date, excludeId?: number) {
+  const db = await getDb();
+  if (!db) return [];
+  
+  const conditions = [
+    eq(labReservations.labId, labId),
+    or(
+      eq(labReservations.status, "pending"),
+      eq(labReservations.status, "approved")
+    ),
+    // 时间重叠检测: NOT (end_new <= start_exist OR start_new >= end_exist)
+    // 转换为: (end_new > start_exist AND start_new < end_exist)
+    gt(labReservations.endTime, startTime),
+    lt(labReservations.startTime, endTime)
+  ];
+  
+  if (excludeId) {
+    conditions.push(ne(labReservations.id, excludeId));
+  }
+  
+  const conflicts = await db.select().from(labReservations).where(and(...conditions));
+  
+  return conflicts;
+}
+
+/**
+ * 获取所有有时间冲突的预约
+ * 用于管理员筛选和处理冲突
+ */
+export async function getAllConflictingReservations(filters?: {
+  startDate?: string;
+  endDate?: string;
+  labId?: number;
+  status?: string;
+}) {
+  const db = await getDb();
+  if (!db) return [];
+
+  try {
+    console.log('[Conflicts] Searching with filters:', filters);
+    
+    // 构建基础查询条件
+    const conditions = [];
+    
+    // 状态过滤：如果指定了 status，只查该状态；否则查 pending + approved
+    if (filters?.status) {
+      conditions.push(eq(labReservations.status, filters.status as any));
+    } else {
+      conditions.push(
+        or(
+          eq(labReservations.status, "pending"),
+          eq(labReservations.status, "approved")
+        )
+      );
+    }
+
+    // 时间范围过滤
+    if (filters?.startDate) {
+      conditions.push(gte(labReservations.startTime, new Date(filters.startDate)));
+    }
+    if (filters?.endDate) {
+      conditions.push(lte(labReservations.startTime, new Date(filters.endDate)));
+    }
+    
+    // 实验室过滤
+    if (filters?.labId) {
+      conditions.push(eq(labReservations.labId, filters.labId));
+    }
+
+    // 查询所有符合条件的预约
+    const allReservations = await db
+      .select()
+      .from(labReservations)
+      .where(and(...conditions))
+      .orderBy(labReservations.startTime);
+
+    // 检测每个预约是否有冲突
+    const conflictingReservations = [];
+    
+    for (const reservation of allReservations) {
+      const conflicts = await getConflictingReservations(
+        reservation.labId,
+        reservation.startTime,
+        reservation.endTime,
+        reservation.id
+      );
+
+      if (conflicts.length > 0) {
+        conflictingReservations.push({
+          ...reservation,
+          conflictCount: conflicts.length,
+          conflictIds: conflicts.map(c => c.id),
+        });
+      }
+    }
+
+    return conflictingReservations;
+  } catch (error) {
+    console.error("[Database] Error in getAllConflictingReservations:", error);
+    return [];
+  }
 }
 
 /**
@@ -377,6 +505,204 @@ export async function checkReservationRules(
           valid: false,
           reason: `必须至少提前 ${advanceDays} 天预约，最早可预约日期为 ${earliestStart.toLocaleDateString()}`
         };
+      }
+    }
+
+    // ========== 4. 检查禁用时段（优先级最高）==========
+    const blockedPeriodsList = await getOverlappingBlockedPeriods(startTime, endTime, labId);
+    if (blockedPeriodsList.length > 0) {
+      const blocked = blockedPeriodsList[0]; // 取第一个冲突的禁用时段
+      const reasonLabel = blocked.reason === 'maintenance' ? '维护' : 
+                         blocked.reason === 'vacation' ? '假期' : 
+                         blocked.reason === 'inspection' ? '检查' : '其他';
+      return {
+        valid: false,
+        reason: `该时间段处于${reasonLabel}禁用期（${new Date(blocked.startDate).toLocaleDateString()} - ${new Date(blocked.endDate).toLocaleDateString()}），无法预约`
+      };
+    }
+
+    // ========== 5. 检查开放规则 ==========
+    const openingRulesList = await getOpeningRulesForLab(labId);
+    if (openingRulesList && openingRulesList.length > 0) {
+      // 检查预约的每一天是否都在开放时间内
+      const startDate = new Date(startTime);
+      const endDate = new Date(endTime);
+      
+      // 如果预约跨天，需要检查每一天
+      const checkDate = new Date(startDate);
+      while (checkDate <= endDate) {
+        const dayOfWeek = checkDate.getDay(); // 0=周日, 1=周一, ..., 6=周六
+        const dayRule = openingRulesList.find((r: any) => r.dayOfWeek === dayOfWeek && r.status === 'enabled');
+        
+        if (dayRule) {
+          // 解析开放时间（HH:mm格式）
+          const [openHour, openMin] = dayRule.openTime.split(':').map(Number);
+          const [closeHour, closeMin] = dayRule.closeTime.split(':').map(Number);
+          
+          const ruleOpenTime = new Date(checkDate);
+          ruleOpenTime.setHours(openHour, openMin, 0, 0);
+          const ruleCloseTime = new Date(checkDate);
+          ruleCloseTime.setHours(closeHour, closeMin, 0, 0);
+          
+          // 检查预约的开始时间和结束时间是否都在开放时间内
+          // 如果预约跨天，需要特殊处理
+          const reservationStart = checkDate.getTime() === startDate.getTime() ? startTime : new Date(checkDate.setHours(0, 0, 0, 0));
+          const reservationEnd = checkDate.getTime() === endDate.getTime() ? endTime : new Date(checkDate.setHours(23, 59, 59, 999));
+          
+          if (reservationStart < ruleOpenTime || reservationEnd > ruleCloseTime) {
+            const dayLabel = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][dayOfWeek];
+            return {
+              valid: false,
+              reason: `${dayLabel}的开放时间为 ${dayRule.openTime} - ${dayRule.closeTime}，您的预约时间不在开放范围内`
+            };
+          }
+        } else {
+          // 如果没有配置该天的规则，默认不允许（安全策略）
+          const dayLabel = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][dayOfWeek];
+          return {
+            valid: false,
+            reason: `${dayLabel}未配置开放规则，无法预约`
+          };
+        }
+        
+        // 移动到下一天
+        checkDate.setDate(checkDate.getDate() + 1);
+        checkDate.setHours(0, 0, 0, 0);
+      }
+    }
+
+    // ========== 规则检查通过 ==========
+    return { valid: true };
+  } catch (error) {
+    console.error("[Rules] Error checking reservation rules:", error);
+    return { valid: false, reason: "规则检查失败，请稍后重试" };
+  }
+}
+
+/**
+ * 检查预约规则（排除 ADVANCE_DAYS 规则）
+ * 用于管理员绕过提前预约天数限制的情况
+ */
+export async function checkReservationRulesExceptAdvance(
+  userId: number,
+  labId: number,
+  startTime: Date,
+  endTime: Date
+): Promise<{ valid: boolean; reason?: string }> {
+  const db = await getDb();
+  if (!db) {
+    console.warn("[Database] Cannot check rules: database not available");
+    return { valid: false, reason: "系统错误：数据库不可用" };
+  }
+
+  try {
+    // ========== 1. 检查 MAX_PER_DAY（每日最大预约次数）==========
+    const maxPerDayRule = await getRuleByCode("MAX_PER_DAY");
+    if (maxPerDayRule && maxPerDayRule.status === "enabled") {
+      const maxPerDay = parseInt(maxPerDayRule.ruleValue, 10);
+      if (isNaN(maxPerDay) || maxPerDay <= 0) {
+        console.warn(`[Rules] Invalid MAX_PER_DAY value: ${maxPerDayRule.ruleValue}`);
+        return { valid: false, reason: "规则配置错误" };
+      }
+
+      const countResult = await db.select({ count: sql<number>`count(*)` })
+        .from(labReservations)
+        .where(
+          and(
+            eq(labReservations.userId, userId),
+            gte(labReservations.startTime, new Date(startTime.toDateString())),
+            lte(labReservations.startTime, new Date(new Date(startTime.toDateString()).getTime() + 86399999)),
+            or(
+              eq(labReservations.status, "pending"),
+              eq(labReservations.status, "approved")
+            )
+          )
+        );
+
+      const currentCount = countResult[0]?.count || 0;
+      if (currentCount >= maxPerDay) {
+        return {
+          valid: false,
+          reason: `每日最多预约 ${maxPerDay} 次，您今日已达上限（已预约 ${currentCount} 次）`
+        };
+      }
+    }
+
+    // ========== 2. 检查 MAX_DURATION（单次预约最长时长）==========
+    const maxDurationRule = await getRuleByCode("MAX_DURATION");
+    if (maxDurationRule && maxDurationRule.status === "enabled") {
+      const maxHours = parseInt(maxDurationRule.ruleValue, 10);
+      if (isNaN(maxHours) || maxHours <= 0) {
+        console.warn(`[Rules] Invalid MAX_DURATION value: ${maxDurationRule.ruleValue}`);
+        return { valid: false, reason: "规则配置错误" };
+      }
+
+      const durationMs = endTime.getTime() - startTime.getTime();
+      const durationHours = durationMs / (1000 * 60 * 60);
+
+      if (durationHours > maxHours) {
+        return {
+          valid: false,
+          reason: `单次预约最长 ${maxHours} 小时，您的预约时长为 ${durationHours.toFixed(1)} 小时`
+        };
+      }
+    }
+
+    // 注意：跳过 ADVANCE_DAYS 检查
+
+    // ========== 4. 检查禁用时段（优先级最高）==========
+    const blockedPeriodsList = await getOverlappingBlockedPeriods(startTime, endTime, labId);
+    if (blockedPeriodsList.length > 0) {
+      const blocked = blockedPeriodsList[0]; // 取第一个冲突的禁用时段
+      const reasonLabel = blocked.reason === 'maintenance' ? '维护' : 
+                         blocked.reason === 'vacation' ? '假期' : 
+                         blocked.reason === 'inspection' ? '检查' : '其他';
+      return {
+        valid: false,
+        reason: `该时间段处于${reasonLabel}禁用期（${new Date(blocked.startDate).toLocaleDateString()} - ${new Date(blocked.endDate).toLocaleDateString()}），无法预约`
+      };
+    }
+
+    // ========== 5. 检查开放规则 ==========
+    const openingRulesList = await getOpeningRulesForLab(labId);
+    if (openingRulesList && openingRulesList.length > 0) {
+      const startDate = new Date(startTime);
+      const endDate = new Date(endTime);
+      const checkDate = new Date(startDate);
+      
+      while (checkDate <= endDate) {
+        const dayOfWeek = checkDate.getDay();
+        const dayRule = openingRulesList.find((r: any) => r.dayOfWeek === dayOfWeek && r.status === 'enabled');
+        
+        if (dayRule) {
+          const [openHour, openMin] = dayRule.openTime.split(':').map(Number);
+          const [closeHour, closeMin] = dayRule.closeTime.split(':').map(Number);
+          
+          const ruleOpenTime = new Date(checkDate);
+          ruleOpenTime.setHours(openHour, openMin, 0, 0);
+          const ruleCloseTime = new Date(checkDate);
+          ruleCloseTime.setHours(closeHour, closeMin, 0, 0);
+          
+          const reservationStart = checkDate.getTime() === startDate.getTime() ? startTime : new Date(checkDate.setHours(0, 0, 0, 0));
+          const reservationEnd = checkDate.getTime() === endDate.getTime() ? endTime : new Date(checkDate.setHours(23, 59, 59, 999));
+          
+          if (reservationStart < ruleOpenTime || reservationEnd > ruleCloseTime) {
+            const dayLabel = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][dayOfWeek];
+            return {
+              valid: false,
+              reason: `${dayLabel}的开放时间为 ${dayRule.openTime} - ${dayRule.closeTime}，您的预约时间不在开放范围内`
+            };
+          }
+        } else {
+          const dayLabel = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][dayOfWeek];
+          return {
+            valid: false,
+            reason: `${dayLabel}未配置开放规则，无法预约`
+          };
+        }
+        
+        checkDate.setDate(checkDate.getDate() + 1);
+        checkDate.setHours(0, 0, 0, 0);
       }
     }
 
@@ -1326,7 +1652,48 @@ export async function getActiveBlockedPeriods(date: Date, labId?: number, device
     gte(blockedPeriods.endDate, date),
   ];
   
-  if (labId !== undefined) conditions.push(eq(blockedPeriods.labId, labId));
+  if (labId !== undefined) {
+    // 检查实验室特定禁用或全局禁用（labId为NULL）
+    conditions.push(
+      or(
+        eq(blockedPeriods.labId, labId),
+        sql`${blockedPeriods.labId} IS NULL`
+      )
+    );
+  }
+  if (deviceId !== undefined) conditions.push(eq(blockedPeriods.deviceId, deviceId));
+  
+  return await db.select().from(blockedPeriods).where(and(...conditions));
+}
+
+/**
+ * 获取与指定时间段重叠的禁用时段
+ * 用于预约验证
+ */
+export async function getOverlappingBlockedPeriods(
+  startTime: Date, 
+  endTime: Date, 
+  labId?: number, 
+  deviceId?: number
+) {
+  const db = await getDb();
+  if (!db) return [];
+  
+  const conditions = [
+    eq(blockedPeriods.status, 'active'),
+    // 时间重叠检测: NOT (end_new <= start_exist OR start_new >= end_exist)
+    sql`NOT (${blockedPeriods.endDate} <= ${startTime} OR ${blockedPeriods.startDate} >= ${endTime})`
+  ];
+  
+  if (labId !== undefined) {
+    // 检查实验室特定禁用或全局禁用（labId为NULL）
+    conditions.push(
+      or(
+        eq(blockedPeriods.labId, labId),
+        sql`${blockedPeriods.labId} IS NULL`
+      )
+    );
+  }
   if (deviceId !== undefined) conditions.push(eq(blockedPeriods.deviceId, deviceId));
   
   return await db.select().from(blockedPeriods).where(and(...conditions));
@@ -1498,5 +1865,483 @@ export async function autoCancelOverdueReservations() {
   } catch (error) {
     console.error("Error in autoCancelOverdueReservations:", error);
     return { cancelledCount: 0 };
+  }
+}
+
+// ============ 日历与调度相关函数 ============
+
+export async function getReservationsByTimeRange(input: {
+  startDate: string;
+  endDate: string;
+  labId?: number;
+  deviceId?: number;
+  courseId?: number;
+  teacherId?: number;
+  status?: string;
+}): Promise<any[]> {
+  const db = await getDb();
+  if (!db) return [];
+
+  try {
+    const startTime = new Date(input.startDate);
+    const endTime = new Date(input.endDate);
+
+    const conditions: any[] = [
+      gte(labReservations.startTime, startTime),
+      lte(labReservations.endTime, endTime),
+    ];
+
+    if (input.labId) {
+      conditions.push(eq(labReservations.labId, input.labId));
+    }
+
+    if (input.status) {
+      conditions.push(eq(labReservations.status, input.status as "pending" | "approved" | "rejected" | "completed" | "cancelled" | "violated"));
+    }
+
+    const reservations = await db
+      .select({
+        id: labReservations.id,
+        userId: labReservations.userId,
+        labId: labReservations.labId,
+        labName: labRooms.name,
+        startTime: labReservations.startTime,
+        endTime: labReservations.endTime,
+        status: labReservations.status,
+        title: labReservations.title,
+      })
+      .from(labReservations)
+      .leftJoin(labRooms, eq(labReservations.labId, labRooms.id))
+      .where(and(...conditions));
+
+    return reservations;
+  } catch (error) {
+    console.error("Error in getReservationsByTimeRange:", error);
+    return [];
+  }
+}
+
+export async function getLabCalendarData(input: {
+  labId: number;
+  startDate: string;
+  endDate: string;
+  viewType: 'day' | 'week' | 'month' | 'heatmap';
+}): Promise<{
+  events: any[];
+  blockedPeriods: any[];
+  summary: { totalReservations: number; approved: number; pending: number };
+}> {
+  const db = await getDb();
+  if (!db) return { events: [], blockedPeriods: [], summary: { totalReservations: 0, approved: 0, pending: 0 } };
+
+  try {
+    const startTime = new Date(input.startDate);
+    const endTime = new Date(input.endDate);
+
+    const events = await db
+      .select({
+        id: labReservations.id,
+        userId: labReservations.userId,
+        startTime: labReservations.startTime,
+        endTime: labReservations.endTime,
+        status: labReservations.status,
+        title: labReservations.title,
+      })
+      .from(labReservations)
+      .where(
+        and(
+          eq(labReservations.labId, input.labId),
+          gte(labReservations.startTime, startTime),
+          lte(labReservations.endTime, endTime)
+        )
+      );
+
+    // 获取禁用时段：查询与时间范围有重叠的禁用时段
+    const blockedPeriodsList = await db
+      .select({
+        id: blockedPeriods.id,
+        labId: blockedPeriods.labId,
+        deviceId: blockedPeriods.deviceId,
+        reason: blockedPeriods.reason,
+        startDate: blockedPeriods.startDate,
+        endDate: blockedPeriods.endDate,
+        handleExisting: blockedPeriods.handleExisting,
+        status: blockedPeriods.status,
+      })
+      .from(blockedPeriods)
+      .where(
+        and(
+          eq(blockedPeriods.status, 'active'),
+          or(
+            eq(blockedPeriods.labId, input.labId),
+            sql`${blockedPeriods.labId} IS NULL` // 全局禁用时段
+          ),
+          // 时间重叠检测: NOT (endDate <= startTime OR startDate >= endTime)
+          sql`NOT (${blockedPeriods.endDate} <= ${startTime} OR ${blockedPeriods.startDate} >= ${endTime})`
+        )
+      );
+
+    return {
+      events,
+      blockedPeriods: blockedPeriodsList,
+      summary: {
+        totalReservations: events.length,
+        approved: events.filter(e => e.status === 'approved').length,
+        pending: events.filter(e => e.status === 'pending').length,
+      },
+    };
+  } catch (error) {
+    console.error("Error in getLabCalendarData:", error);
+    return { events: [], blockedPeriods: [], summary: { totalReservations: 0, approved: 0, pending: 0 } };
+  }
+}
+
+/**
+ * 获取月度资源利用率数据（按天统计）
+ * 用于热力图显示
+ */
+export async function getMonthlyUtilizationData(input: {
+  labId?: number;
+  deviceId?: number;
+  courseId?: number;
+  startDate: string;
+  endDate: string;
+}): Promise<Array<{ date: string; count: number; hours: number }>> {
+  const db = await getDb();
+  if (!db) return [];
+
+  try {
+    const startTime = new Date(input.startDate);
+    const endTime = new Date(input.endDate);
+
+    const conditions = [];
+    
+    if (input.labId) {
+      conditions.push(eq(labReservations.labId, input.labId));
+    }
+    
+    if (input.deviceId) {
+      // 如果指定了设备，需要通过 reservation_devices 关联表查询
+      // 这里简化处理，先只支持实验室维度
+    }
+    
+    // 注意：lab_reservations 表没有 courseId 字段
+    // 课程预约在 course_reservations 表中，这里暂时不支持按课程查询利用率
+    // if (input.courseId) {
+    //   conditions.push(eq(labReservations.courseId, input.courseId));
+    // }
+
+    // 只统计已批准和待审核的预约
+    conditions.push(
+      or(
+        eq(labReservations.status, "approved"),
+        eq(labReservations.status, "pending")
+      )
+    );
+
+    // 查询时间范围内的预约
+    conditions.push(
+      and(
+        gte(labReservations.startTime, startTime),
+        lte(labReservations.endTime, endTime)
+      )
+    );
+
+    // 按天分组统计
+    const results = await db
+      .select({
+        date: sql<string>`DATE(${labReservations.startTime})`.as('date'),
+        count: sql<number>`COUNT(*)`.as('count'),
+        hours: sql<number>`SUM(TIMESTAMPDIFF(HOUR, ${labReservations.startTime}, ${labReservations.endTime}))`.as('hours'),
+      })
+      .from(labReservations)
+      .where(and(...conditions))
+      .groupBy(sql`DATE(${labReservations.startTime})`);
+
+    return results.map((r: any) => ({
+      date: r.date instanceof Date ? r.date.toISOString().split('T')[0] : String(r.date),
+      count: Number(r.count) || 0,
+      hours: Number(r.hours) || 0,
+    }));
+  } catch (error) {
+    console.error("Error in getMonthlyUtilizationData:", error);
+    return [];
+  }
+}
+
+export async function getCourseCalendarByTeacher(
+  teacherId: number,
+  startDate: string,
+  endDate: string
+): Promise<any[]> {
+  const db = await getDb();
+  if (!db) return [];
+
+  try {
+    const startTime = new Date(startDate);
+    const endTime = new Date(endDate);
+
+    const reservations = await db
+      .select({
+        id: courseReservations.id,
+        courseId: courseReservations.courseId,
+        courseName: courses.name,
+        labId: courseReservations.labId,
+        labName: labRooms.name,
+        startTime: courseReservations.startTime,
+        endTime: courseReservations.endTime,
+        status: courseReservations.status,
+      })
+      .from(courseReservations)
+      .innerJoin(courses, eq(courseReservations.courseId, courses.id))
+      .leftJoin(labRooms, eq(courseReservations.labId, labRooms.id))
+      .where(
+        and(
+          eq(courses.teacherId, teacherId),
+          gte(courseReservations.startTime, startTime),
+          lte(courseReservations.endTime, endTime)
+        )
+      );
+
+    return reservations;
+  } catch (error) {
+    console.error("Error in getCourseCalendarByTeacher:", error);
+    return [];
+  }
+}
+
+export async function getAlternativeTimeSlots(input: {
+  labId: number;
+  startTime: string;
+  endTime: string;
+  excludeReservationId?: number;
+}): Promise<Array<{ startTime: Date; endTime: Date; availableCapacity: number; confidence: number }>> {
+  const db = await getDb();
+  if (!db) return [];
+
+  try {
+    const requestedStart = new Date(input.startTime);
+    const requestedEnd = new Date(input.endTime);
+    const duration = requestedEnd.getTime() - requestedStart.getTime();
+
+    // 获取实验室容量
+    const lab = await db
+      .select({ capacity: labRooms.capacity })
+      .from(labRooms)
+      .where(eq(labRooms.id, input.labId))
+      .limit(1);
+
+    if (!lab || !lab[0]) return [];
+
+    const labCapacity = lab[0].capacity || 0;
+
+    // 获取 ADVANCE_DAYS 规则
+    const advanceRule = await db
+      .select({ ruleValue: labReserveRules.ruleValue })
+      .from(labReserveRules)
+      .where(
+        and(
+          eq(labReserveRules.ruleCode, 'ADVANCE_DAYS'),
+          eq(labReserveRules.status, 'enabled')
+        )
+      )
+      .limit(1);
+
+    const advanceDays = advanceRule && advanceRule[0] ? parseInt(advanceRule[0].ruleValue, 10) : 0;
+    const now = new Date();
+    const minAllowedDate = new Date(now);
+    minAllowedDate.setDate(minAllowedDate.getDate() + advanceDays);
+    minAllowedDate.setHours(0, 0, 0, 0);
+
+    // 搜索未来 30 天
+    const searchEnd = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+
+    // 获取所有已有预约
+    const reservations = await db
+      .select({
+        startTime: labReservations.startTime,
+        endTime: labReservations.endTime,
+      })
+      .from(labReservations)
+      .where(
+        and(
+          eq(labReservations.labId, input.labId),
+          or(
+            eq(labReservations.status, "approved"),
+            eq(labReservations.status, "pending")
+          ),
+          gte(labReservations.endTime, now),
+          lte(labReservations.startTime, searchEnd),
+          input.excludeReservationId 
+            ? sql`${labReservations.id} != ${input.excludeReservationId}`
+            : sql`1=1`
+        )
+      );
+
+    const suggestions: Array<{ startTime: Date; endTime: Date; availableCapacity: number; confidence: number }> = [];
+
+    // 智能生成时间建议：优先考虑最近的、同时间段的
+    const candidates: Array<{ start: Date; end: Date; confidence: number }> = [];
+
+    // 1. 同天其他时间段（往后每小时）
+    for (let hour = 1; hour <= 12; hour++) {
+      const newStart = new Date(requestedStart.getTime() + hour * 60 * 60 * 1000);
+      const newEnd = new Date(newStart.getTime() + duration);
+      
+      // 确保在工作时间内 (6:00-22:00)
+      if (newStart.getHours() >= 6 && newStart.getHours() <= 21) {
+        candidates.push({ start: newStart, end: newEnd, confidence: 0.95 - hour * 0.02 });
+      }
+    }
+
+    // 2. 次日及后续天数的同时间段
+    for (let day = 1; day <= 21; day++) {
+      const newStart = new Date(requestedStart);
+      newStart.setDate(newStart.getDate() + day);
+      const newEnd = new Date(newStart.getTime() + duration);
+      
+      candidates.push({ start: newStart, end: newEnd, confidence: 0.90 - day * 0.01 });
+    }
+
+    // 3. 同天早些时间（如果原时间较晚）
+    if (requestedStart.getHours() > 10) {
+      for (let hour = 1; hour <= 6; hour++) {
+        const newStart = new Date(requestedStart.getTime() - hour * 60 * 60 * 1000);
+        const newEnd = new Date(newStart.getTime() + duration);
+        
+        if (newStart.getHours() >= 6) {
+          candidates.push({ start: newStart, end: newEnd, confidence: 0.85 - hour * 0.02 });
+        }
+      }
+    }
+
+    // 4. 分析已有预约之间的空闲时段
+    if (reservations.length > 0) {
+      const sortedReservations = [...reservations].sort((a, b) => 
+        a.startTime.getTime() - b.startTime.getTime()
+      );
+      
+      // 检查每两个预约之间的空隙
+      for (let i = 0; i < sortedReservations.length - 1; i++) {
+        const gapStart = sortedReservations[i].endTime;
+        const gapEnd = sortedReservations[i + 1].startTime;
+        const gapDuration = gapEnd.getTime() - gapStart.getTime();
+        
+        // 如果空隙足够大
+        if (gapDuration >= duration) {
+          const newStart = new Date(gapStart);
+          const newEnd = new Date(newStart.getTime() + duration);
+          
+          // 确保在工作时间
+          if (newStart.getHours() >= 6 && newEnd.getHours() <= 22) {
+            candidates.push({ 
+              start: newStart, 
+              end: newEnd, 
+              confidence: 0.92 // 利用空闲时段有较高优先级
+            });
+          }
+        }
+      }
+    }
+
+    // 检查每个候选时间是否可用
+    for (const candidate of candidates) {
+      const { start: newStart, end: newEnd, confidence } = candidate;
+
+      // 检查是否符合提前预约规则
+      if (newStart < minAllowedDate) {
+        continue;
+      }
+
+      // 检查是否有冲突
+      const hasConflict = reservations.some(
+        r => !(newEnd <= r.startTime || newStart >= r.endTime)
+      );
+
+      if (!hasConflict) {
+        suggestions.push({
+          startTime: newStart,
+          endTime: newEnd,
+          availableCapacity: labCapacity,
+          confidence: confidence,
+        });
+
+        // 找到 5 个建议就停止
+        if (suggestions.length >= 5) break;
+      }
+    }
+
+    // 如果没有找到建议，记录原因
+    if (suggestions.length === 0) {
+      console.log('[AlternativeSlots] No suggestions found:', {
+        labId: input.labId,
+        requestedTime: `${requestedStart.toISOString()} - ${requestedEnd.toISOString()}`,
+        minAllowedDate: minAllowedDate.toISOString(),
+        candidatesChecked: candidates.length,
+        existingReservations: reservations.length,
+      });
+    }
+
+    return suggestions;
+  } catch (error) {
+    console.error("Error in getAlternativeTimeSlots:", error);
+    return [];
+  }
+}
+
+// 获取预约详情（包含关联信息）
+export async function getReservationDetails(reservationId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+
+  try {
+    // 获取基本预约信息
+    const [reservation] = await db
+      .select()
+      .from(labReservations)
+      .where(eq(labReservations.id, reservationId))
+      .limit(1);
+
+    if (!reservation) return undefined;
+
+    // 获取申请人信息
+    const [applicant] = await db
+      .select({ id: users.id, name: users.name, email: users.email, role: users.role })
+      .from(users)
+      .where(eq(users.id, reservation.userId))
+      .limit(1);
+
+    // 获取实验室信息
+    const [lab] = await db
+      .select()
+      .from(labRooms)
+      .where(eq(labRooms.id, reservation.labId))
+      .limit(1);
+
+    // 获取审批历史
+    const approvalHistory = await db
+      .select({
+        id: approvalHistories.id,
+        approverUserId: approvalHistories.approverUserId,
+        approvalStage: approvalHistories.approvalStage,
+        decision: approvalHistories.decision,
+        comment: approvalHistories.comment,
+        approvedAt: approvalHistories.approvedAt,
+      })
+      .from(approvalHistories)
+      .where(eq(approvalHistories.reservationId, reservationId))
+      .orderBy(approvalHistories.approvalStage);
+
+    return {
+      ...reservation,
+      applicant,
+      lab,
+      devices: [], // 设备列表需要单独的关联表，暂时返回空数组
+      course: null, // 课程信息（当前schema中预约表没有courseId字段）
+      approvalHistory,
+    };
+  } catch (error) {
+    console.error("Error in getReservationDetails:", error);
+    return undefined;
   }
 }

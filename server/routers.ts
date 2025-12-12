@@ -1,6 +1,7 @@
 import { COOKIE_NAME } from "@shared/const";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
+import { InsertLabReservation } from "../drizzle/schema";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { xfspark } from "./_core/xfspark";
@@ -411,6 +412,180 @@ export const appRouter = router({
         });
         
         return { success: true };
+      }),
+
+    // 更新/重新安排预约
+    update: protectedProcedure
+      .input(z.object({
+        id: z.number(),
+        labId: z.number().optional(),
+        title: z.string().optional(),
+        reason: z.string().optional(),
+        peopleCount: z.number().optional(),
+        startTime: z.date().optional(),
+        endTime: z.date().optional(),
+        bypassAdvanceRule: z.boolean().optional(), // 管理员可以绕过提前预约规则
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const { id, bypassAdvanceRule, ...inputData } = input;
+        
+        // 获取原预约
+        const reservation = await db.getReservationById(id);
+        if (!reservation) {
+          throw new TRPCError({ code: 'NOT_FOUND', message: '预约不存在' });
+        }
+        
+        // 权限检查：只有预约者本人或管理员可以修改
+        const isAdmin = ['labAdmin', 'sysAdmin'].includes(ctx.user.role);
+        if (reservation.userId !== ctx.user.id && !isAdmin) {
+          throw new TRPCError({ code: 'FORBIDDEN', message: '无权操作此预约' });
+        }
+        
+        // 检查是否可以修改（仅 pending 和 approved 状态可修改）
+        if (!['pending', 'approved'].includes(reservation.status)) {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: '当前状态不允许修改预约' });
+        }
+        
+        // 如果修改了时间或实验室，需要额外检查
+        const isTimeChanged = inputData.startTime || inputData.endTime || inputData.labId;
+        
+        // 准备更新数据
+        const updateData: Partial<InsertLabReservation> = { ...inputData };
+        
+        if (isTimeChanged) {
+          const newStartTime = inputData.startTime || reservation.startTime;
+          const newEndTime = inputData.endTime || reservation.endTime;
+          const newLabId = inputData.labId || reservation.labId;
+          
+          // 检查时间合法性
+          if (new Date(newStartTime) >= new Date(newEndTime)) {
+            throw new TRPCError({ code: 'BAD_REQUEST', message: '结束时间必须晚于开始时间' });
+          }
+          
+          // 检查时间冲突
+          const hasConflict = await db.checkTimeConflict(
+            newLabId,
+            newStartTime,
+            newEndTime,
+            id // 排除当前预约
+          );
+          
+          if (hasConflict) {
+            throw new TRPCError({ code: 'BAD_REQUEST', message: '该时间段已被预约' });
+          }
+          
+          // 检查预约规则（管理员且明确绕过时跳过 ADVANCE_DAYS 规则）
+          if (isAdmin && bypassAdvanceRule) {
+            // 管理员绕过提前预约规则，但仍需检查其他规则
+            const ruleCheckResult = await db.checkReservationRulesExceptAdvance(
+              ctx.user.id,
+              newLabId,
+              newStartTime,
+              newEndTime
+            );
+            
+            if (!ruleCheckResult.valid) {
+              throw new TRPCError({
+                code: 'BAD_REQUEST',
+                message: ruleCheckResult.reason || '违反预约规则'
+              });
+            }
+          } else {
+            // 普通用户或管理员未绕过，检查所有规则
+            const ruleCheckResult = await db.checkReservationRules(
+              ctx.user.id,
+              newLabId,
+              newStartTime,
+              newEndTime
+            );
+            
+            if (!ruleCheckResult.valid) {
+              throw new TRPCError({
+                code: 'BAD_REQUEST',
+                message: ruleCheckResult.reason || '违反预约规则'
+              });
+            }
+          }
+          
+          // 如果修改了时间/实验室，将状态改为 pending 重新审核
+          // 即使原本就是 pending，也要确保更新 updatedAt
+          if (reservation.status === 'approved') {
+            updateData.status = 'pending';
+          }
+          // 对于原本就是 pending 的，不改变状态，但 updatedAt 会自动更新
+        }
+        
+        // 执行更新
+        await db.updateReservation(id, updateData);
+        
+        // 验证更新后的记录
+        const updated = await db.getReservationById(id);
+        if (updated) {
+          console.log('[Update] Reservation updated:', {
+            id: updated.id,
+            status: updated.status,
+            startTime: updated.startTime,
+            endTime: updated.endTime,
+            updatedAt: updated.updatedAt,
+          });
+        }
+        
+        // 记录审计日志
+        await db.createAuditLog({
+          operatorUserId: ctx.user.id,
+          operationType: 'reservation_update',
+          targetType: 'reservation',
+          targetId: id,
+          details: JSON.stringify({ 
+            reservationId: id, 
+            updates: updateData,
+            isTimeChanged,
+            bypassAdvanceRule: isAdmin && bypassAdvanceRule 
+          }),
+          result: 'success',
+          ipAddress: getClientIp(ctx.req),
+        });
+        
+        return { success: true, needsReApproval: isTimeChanged };
+      }),
+
+    // 获取冲突详情
+    getConflictDetails: protectedProcedure
+      .input(z.object({
+        reservationId: z.number(),
+      }))
+      .query(async ({ input }) => {
+        const reservation = await db.getReservationById(input.reservationId);
+        if (!reservation) {
+          throw new TRPCError({ code: 'NOT_FOUND', message: '预约不存在' });
+        }
+        
+        // 查找与此预约冲突的其他预约
+        const conflictingReservations = await db.getConflictingReservations(
+          reservation.labId,
+          reservation.startTime,
+          reservation.endTime,
+          reservation.id
+        );
+        
+        // 获取冲突预约的详细信息
+        const conflicts = await Promise.all(
+          conflictingReservations.map(async (r) => {
+            const lab = await db.getLabRoomById(r.labId);
+            const user = await db.getUserById(r.userId);
+            return {
+              id: r.id,
+              title: r.title,
+              startTime: r.startTime,
+              endTime: r.endTime,
+              status: r.status,
+              lab: lab ? { id: lab.id, name: lab.name } : null,
+              applicant: user ? { id: user.id, name: user.name } : null,
+            };
+          })
+        );
+        
+        return conflicts;
       }),
   }),
 
@@ -1242,14 +1417,19 @@ export const appRouter = router({
         openTime: z.string(),
         closeTime: z.string(),
         isWorkday: z.number(),
+        status: z.enum(['enabled', 'disabled']).optional(),
       }))
       .mutation(async ({ ctx, input }) => {
+        const { status, ...ruleData } = input;
         if (input.id) {
-          await db.updateOpeningRule(input.id, input);
+          await db.updateOpeningRule(input.id, {
+            ...ruleData,
+            ...(status && { status }),
+          });
         } else {
           await db.createOpeningRule({
-            ...input,
-            status: 'enabled',
+            ...ruleData,
+            status: status || 'enabled',
           });
         }
 
@@ -1314,21 +1494,35 @@ export const appRouter = router({
     update: adminProcedure
       .input(z.object({
         id: z.number(),
+        labId: z.number().nullable().optional(),
+        deviceId: z.number().nullable().optional(),
+        reason: z.string().optional(),
+        startDate: z.date().optional(),
+        endDate: z.date().optional(),
         status: z.enum(['active', 'inactive']).optional(),
         handleExisting: z.enum(['allow', 'warn', 'cancel']).optional(),
       }))
       .mutation(async ({ ctx, input }) => {
-        await db.updateBlockedPeriod(input.id, {
-          status: input.status,
-          handleExisting: input.handleExisting,
-        });
+        const { id, ...updateData } = input;
+        
+        // 构建更新数据对象，只包含提供的字段
+        const updateFields: any = {};
+        if (updateData.status !== undefined) updateFields.status = updateData.status;
+        if (updateData.handleExisting !== undefined) updateFields.handleExisting = updateData.handleExisting;
+        if (updateData.labId !== undefined) updateFields.labId = updateData.labId;
+        if (updateData.deviceId !== undefined) updateFields.deviceId = updateData.deviceId;
+        if (updateData.reason !== undefined) updateFields.reason = updateData.reason;
+        if (updateData.startDate !== undefined) updateFields.startDate = updateData.startDate;
+        if (updateData.endDate !== undefined) updateFields.endDate = updateData.endDate;
+
+        await db.updateBlockedPeriod(id, updateFields);
 
         // 记录审计日志
         await db.createAuditLog({
           operatorUserId: ctx.user.id,
           operationType: 'blocked_period_update',
           targetType: 'blocked_period',
-          targetId: input.id,
+          targetId: id,
           details: JSON.stringify(input),
           result: 'success',
           ipAddress: getClientIp(ctx.req),
@@ -1443,6 +1637,162 @@ export const appRouter = router({
         });
 
         return { success: true };
+      }),
+  }),
+
+  // ============ 日历与调度 ============
+  calendar: router({
+    getReservationDetails: protectedProcedure
+      .input(z.object({
+        reservationId: z.number(),
+      }))
+      .query(async ({ input }) => {
+        return await db.getReservationDetails(input.reservationId);
+      }),
+
+    getReservationsByTimeRange: protectedProcedure
+      .input(z.object({
+        startDate: z.string().datetime(),
+        endDate: z.string().datetime(),
+        labId: z.number().optional(),
+        deviceId: z.number().optional(),
+        courseId: z.number().optional(),
+        teacherId: z.number().optional(),
+        status: z.enum(['pending', 'approved', 'rejected', 'completed', 'cancelled', 'violated']).optional(),
+      }))
+      .query(async ({ input }) => {
+        return await db.getReservationsByTimeRange(input);
+      }),
+
+    getLabCalendar: protectedProcedure
+      .input(z.object({
+        labId: z.number(),
+        startDate: z.string().datetime(),
+        endDate: z.string().datetime(),
+        viewType: z.enum(['day', 'week', 'month', 'heatmap']),
+      }))
+      .query(async ({ input }) => {
+        return await db.getLabCalendarData(input);
+      }),
+
+    getDeviceCalendar: protectedProcedure
+      .input(z.object({
+        deviceId: z.number(),
+        startDate: z.string().datetime(),
+        endDate: z.string().datetime(),
+        viewType: z.enum(['day', 'week', 'month', 'heatmap']),
+      }))
+      .query(async ({ input }) => {
+        // 通过 getReservationsByTimeRange 获取设备相关的预约
+        const reservations = await db.getReservationsByTimeRange({
+          startDate: input.startDate,
+          endDate: input.endDate,
+          deviceId: input.deviceId,
+        });
+        
+        return {
+          events: reservations,
+          blockedPeriods: [],
+          summary: {
+            totalReservations: reservations.length,
+            approved: reservations.filter((r: any) => r.status === 'approved').length,
+            pending: reservations.filter((r: any) => r.status === 'pending').length,
+          },
+        };
+      }),
+
+    getCourseCalendar: teacherProcedure
+      .input(z.object({
+        startDate: z.string().datetime(),
+        endDate: z.string().datetime(),
+      }))
+      .query(async ({ input, ctx }) => {
+        return await db.getCourseCalendarByTeacher(ctx.user.id, input.startDate, input.endDate);
+      }),
+
+    getAllCourseCalendar: protectedProcedure
+      .input(z.object({
+        courseId: z.number().optional(),
+        teacherId: z.number().optional(),
+        startDate: z.string().datetime(),
+        endDate: z.string().datetime(),
+      }))
+      .query(async ({ input }) => {
+        const reservations = await db.getReservationsByTimeRange({
+          startDate: input.startDate,
+          endDate: input.endDate,
+          courseId: input.courseId,
+          teacherId: input.teacherId,
+        });
+
+        return {
+          events: reservations.filter((r: any) => r.courseId !== null),
+          summary: {
+            totalReservations: reservations.length,
+            approved: reservations.filter((r: any) => r.status === 'approved').length,
+            pending: reservations.filter((r: any) => r.status === 'pending').length,
+          },
+        };
+      }),
+
+    // 获取月度资源利用率数据（用于热力图）
+    getMonthlyUtilization: protectedProcedure
+      .input(z.object({
+        labId: z.number().optional(),
+        deviceId: z.number().optional(),
+        courseId: z.number().optional(),
+        startDate: z.string().datetime(),
+        endDate: z.string().datetime(),
+      }))
+      .query(async ({ input }) => {
+        return await db.getMonthlyUtilizationData(input);
+      }),
+
+    getConflictSuggestions: protectedProcedure
+      .input(z.object({
+        labId: z.number(),
+        startTime: z.string().datetime(),
+        endTime: z.string().datetime(),
+        excludeReservationId: z.number().optional(),
+      }))
+      .query(async ({ input }) => {
+        return await db.getAlternativeTimeSlots(input);
+      }),
+
+    // 获取所有有冲突的预约（管理员功能）
+    getConflictingReservations: adminProcedure
+      .input(z.object({
+        startDate: z.string().datetime().optional(),
+        endDate: z.string().datetime().optional(),
+        labId: z.number().optional(),
+        status: z.enum(['pending', 'approved', 'rejected', 'completed', 'cancelled', 'violated']).optional(),
+      }))
+      .query(async ({ input }) => {
+        const conflicts = await db.getAllConflictingReservations(input);
+        
+        // 获取额外的预约详情
+        const enrichedConflicts = await Promise.all(
+          conflicts.map(async (conflict: any) => {
+            const lab = await db.getLabRoomById(conflict.labId);
+            const user = await db.getUserById(conflict.userId);
+            
+            return {
+              id: conflict.id,
+              title: conflict.title,
+              startTime: conflict.startTime,
+              endTime: conflict.endTime,
+              status: conflict.status,
+              peopleCount: conflict.peopleCount,
+              reason: conflict.reason,
+              conflictCount: conflict.conflictCount,
+              conflictIds: conflict.conflictIds,
+              lab: lab ? { id: lab.id, name: lab.name, roomNo: lab.roomNo } : null,
+              applicant: user ? { id: user.id, name: user.name, email: user.email } : null,
+            };
+          })
+        );
+        
+        return enrichedConflicts;
       }),
   }),
 });

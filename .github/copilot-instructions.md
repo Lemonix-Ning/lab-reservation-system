@@ -57,6 +57,34 @@ useReservationRules()
 - 调用位置：`routers.ts` L147（预约创建）、L207（审核通过）
 - 排除已取消/拒绝的预约
 
+### 日历优化与智能推荐（✅ 2025-12-12 完成）
+
+**智能替代方案算法** (`server/db.ts` L1883-2003):
+```typescript
+getAlternativeTimeSlots(labId, startTime, endTime, userId)
+  → { startTime, endTime, confidence }[]
+```
+- **候选生成**：同日±1-12小时、后21天同时段、深夜场次前置
+- **间隙分析**：分析现有预约间的可用时间段
+- **智能过滤**：工作时间6:00-22:00、符合ADVANCE_DAYS规则、不冲突
+- **置信度评分**：时段越接近原时间、越早的日期分数越高
+- 返回最多5个推荐，按置信度排序
+
+**前端冲突检测** (`client/src/pages/CalendarDashboard.tsx`):
+- 冲突检查时立即打开对话框（L245-252）
+- 使用 `enabled: false` + 手动 `refetch()` 避免自动查询（L88-96）
+- 一键应用替代方案并重新提交审核（L310-340）
+
+**数据库优化**：
+- `lab_reservations.updatedAt`：添加 `ON UPDATE CURRENT_TIMESTAMP`
+- 所有查询按 `ORDER BY updatedAt DESC, createdAt DESC` 排序
+- 保证更新后的预约出现在管理员审核列表顶部
+
+**缓存策略优化**：
+- React Query 缓存刷新使用 `exact: false` 匹配所有子查询
+- 示例：`invalidateQueries({ queryKey: ['reservation'], exact: false })`
+- 覆盖参数化查询如 `reservation.allList({ page, status, labId })`
+
 ## 必须遵守的约定
 
 1. **数据层流程**：`drizzle/schema.ts` → `server/db.ts` → `server/routers.ts`
@@ -83,6 +111,9 @@ useReservationRules()
 | 前端跳转登录 | `client/src/main.tsx` 的 `redirectToLoginIfUnauthorized` |
 | 规则检查失败 | `server/db.ts` 的 `checkReservationRules` 或前端 Hook |
 | AI 调用失败 | `server/_core/xfspark.ts` 的 mock 模式或环境变量检查 |
+| 替代方案为空 | 检查 `getAlternativeTimeSlots` 的工作时间过滤、ADVANCE_DAYS规则 |
+| 缓存未刷新 | React Query 使用 `exact: false` 刷新所有 reservation 子查询 |
+| 预约未置顶 | 确认 `updatedAt` 字段有 `ON UPDATE CURRENT_TIMESTAMP` |
 
 ## 常见陷阱
 
@@ -95,14 +126,23 @@ useReservationRules()
 ❌ **错误**：每次启动都要 `pnpm install && pnpm db:push`  
 ✅ **正确**：首次初始化，后续只需 `pnpm dev` 和 `pnpm client:dev`
 
+❌ **错误**：`invalidateQueries({ queryKey: ['reservation', 'allList'], exact: true })`  
+✅ **正确**：`invalidateQueries({ queryKey: ['reservation'], exact: false })` 覆盖所有子查询
+
+❌ **错误**：依赖数据库自动更新 `updatedAt`，但查询仍用 `createdAt` 排序  
+✅ **正确**：`ORDER BY updatedAt DESC, createdAt DESC` 确保更新记录置顶
+
 ## 下一阶段任务
 
-- [ ] 前端完善（实验室管理页、预约详情）
+- [ ] 后端审计日志支持 targetId 参数过滤（当前前端过滤）
+- [ ] 替代方案算法考虑用户历史偏好时段
+- [ ] 通知系统（邮件、站内消息）
+- [ ] 性能优化（缓存、N+1 查询）
 - [ ] 统计仪表板（图表、热力图）
 - [ ] 通知系统（邮件、站内消息）
 - [ ] 性能优化（缓存、N+1 查询）
 
 ---
 
-**最后更新**：2025-12-01  
-**项目版本**：1.0.0 | **测试通过率**：18/18 ✅
+**最后更新**：2025-12-12  
+**项目版本**：1.0.1 | **测试通过率**：18/18 ✅

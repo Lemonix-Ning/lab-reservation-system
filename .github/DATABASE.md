@@ -4,8 +4,8 @@
 
 本项目使用 MySQL 数据库，通过 Drizzle ORM 进行数据管理。数据库名称为 `lab_reservation_db`。
 
-**当前版本**：2025-12-04  
-**最后更新**：数据库 schema 更新至支持 4 层角色系统
+**当前版本**：2025-12-12  
+**最后更新**：日历优化与冲突管理（P2-2），updatedAt 字段优化
 
 ## 快速恢复指南
 
@@ -477,10 +477,214 @@ pnpm check
 
 ---
 
+## Timestamp 字段最佳实践（P2-2 新增）
+
+### updatedAt 字段配置
+
+**问题**：更新时间需自动刷新，以支持"最近更新的记录显示在顶部"功能。
+
+**解决方案**：添加 `ON UPDATE CURRENT_TIMESTAMP` 触发器
+
+```sql
+-- 修复现有字段
+ALTER TABLE lab_reservations 
+MODIFY COLUMN updatedAt TIMESTAMP NOT NULL 
+DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP;
+
+-- 新表定义示例
+CREATE TABLE lab_reservations (
+  id INT PRIMARY KEY AUTO_INCREMENT,
+  ...
+  createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  ...
+);
+```
+
+**验证**：
+```sql
+-- 查看字段定义
+SHOW CREATE TABLE lab_reservations \G
+-- 应该看到 updatedAt: timestamp ... on update current_timestamp()
+
+-- 测试更新
+UPDATE lab_reservations SET title = '...' WHERE id = 1;
+SELECT id, updatedAt FROM lab_reservations WHERE id = 1;
+-- updatedAt 应该更新为当前时间
+```
+
+---
+
+### 查询排序最佳实践
+
+**问题**：使用 `createdAt DESC` 无法反映最近的更新。
+
+**解决方案**：优先使用 `updatedAt`，并保留 `createdAt` 作为次要排序
+
+```typescript
+// ❌ 错误
+.orderBy(desc(lab_reservations.createdAt))
+
+// ✅ 正确（P2-2 推荐）
+.orderBy(desc(lab_reservations.updatedAt), desc(lab_reservations.createdAt))
+```
+
+**应用场景**：
+- 管理员审核列表：需展示最新更新的预约
+- 用户预约历史：保持按创建顺序
+- 统计查询：按更新时间分组
+
+---
+
+## 高级查询说明（P2-1 日历相关）
+
+### 日历多维度查询
+
+#### 1. `getReservationsByTimeRange`（通用查询）
+**位置**：[server/routers.ts](server/routers.ts) - `calendar.getReservationsByTimeRange`
+
+**输入参数**：
+```typescript
+{
+  startDate: string;     // ISO 8601 日期时间
+  endDate: string;       // ISO 8601 日期时间
+  labId?: number;        // 可选：按实验室过滤
+  deviceId?: number;     // 可选：按设备过滤
+  courseId?: number;     // 可选：按课程过滤
+  teacherId?: number;    // 可选：按教师过滤
+}
+```
+
+**返回结果**：
+```typescript
+{
+  id: number;
+  labId: number;
+  userId: number;
+  title: string;
+  startTime: Date;
+  endTime: Date;
+  status: ReservationStatus;
+  peopleCount: number;
+}[]
+```
+
+**使用场景**：通用日历视图，支持多维度切换
+
+---
+
+#### 2. `getReservationDetails`（详情查询）
+**位置**：[server/db.ts](server/db.ts#L1724-L1772) - `getReservationDetails()`
+
+**输入参数**：
+```typescript
+{
+  reservationId: number;  // 预约 ID
+}
+```
+
+**返回结果**：
+```typescript
+{
+  id: number;
+  labId: number;
+  userId: number;
+  title: string;
+  reason: string;
+  startTime: Date;
+  endTime: Date;
+  status: ReservationStatus;
+  peopleCount: number;
+  applicant: {           // 申请人信息（JOIN users）
+    id: number;
+    name: string;
+    email: string;
+    role: UserRole;
+  };
+  lab: {                 // 实验室信息（JOIN lab_rooms）
+    id: number;
+    roomNo: string;
+    name: string;
+    building: string;
+    capacity: number;
+  };
+  approvalHistory: {     // 审批历史（JOIN approval_histories）
+    approvalStage: number;
+    decision: 'pending' | 'approved' | 'rejected' | 'rescheduled';
+    comment: string;
+    approvedAt: Date;
+  }[];
+}
+```
+
+**使用场景**：点击日历事件后显示完整详情面板
+
+**注意事项**：
+- 当前版本 devices 和 course 字段返回空/null（数据库 schema 限制）
+- 审批历史按 `approvalStage` 正序排列
+
+---
+
+#### 3. `getConflictSuggestions`（替代方案推荐）
+**位置**：[server/routers.ts](server/routers.ts) - `calendar.getConflictSuggestions`
+
+**输入参数**：
+```typescript
+{
+  labId: number;
+  startTime: string;     // ISO 8601 日期时间
+  endTime: string;       // ISO 8601 日期时间
+}
+```
+
+**返回结果**：
+```typescript
+{
+  start: Date;
+  end: Date;
+}[]  // 最多返回 3 个建议
+```
+
+**算法逻辑**：
+1. 查询指定实验室在当天的所有已批准预约
+2. 根据预约间隙计算空闲时段
+3. 按相似度评分（时间接近优先）
+4. 返回前 3 个推荐
+
+**使用场景**：冲突检测后自动推荐替代时间槽
+
+---
+
+### 冲突检测逻辑
+
+**前端实现**：[client/src/components/Calendar.tsx](client/src/components/Calendar.tsx) - `checkConflict()`
+
+**检测条件**：
+```typescript
+const checkConflict = (event) => {
+  // 时间重叠检测：NOT (end1 <= start2 OR start1 >= end2)
+  const hasTimeOverlap = !(new Date(event.endTime) <= new Date(otherEvent.startTime) || 
+                            new Date(event.startTime) >= new Date(otherEvent.endTime));
+  
+  // 只检测已批准或待审核的预约
+  const isActiveStatus = ['approved', 'pending'].includes(otherEvent.status);
+  
+  return hasTimeOverlap && isActiveStatus;
+};
+```
+
+**视觉提示**：
+- ⚠️ 红色警告图标
+- `ring-2 ring-red-500` 红色边框高亮
+- Hover 显示"存在时间冲突"提示
+
+---
+
 ## 更新历史
 
 | 日期 | 事件 | 修改人 |
 |------|------|--------|
+| 2025-12-11 | 添加日历多维度查询说明（P2-1） | AI Assistant |
 | 2025-12-04 | 修复 role enum 定义，更新至 4 层角色系统 | AI Assistant |
 | 2025-12-04 | 创建数据库文档 | AI Assistant |
 

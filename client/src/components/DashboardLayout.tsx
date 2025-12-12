@@ -36,7 +36,9 @@ import {
   ShieldCheck,
   AlertTriangle,
   FileSearch,
-  Home
+  Home,
+  Ban,
+  Clock
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -51,6 +53,7 @@ const menuItems = [
   // 所有角色都能访问
   { icon: Calendar, label: "浏览实验室", path: "/labs", roles: ['student', 'teacher', 'labAdmin', 'sysAdmin'] },
   { icon: BookOpen, label: "我的预约", path: "/my-reservations", roles: ['student', 'teacher', 'labAdmin', 'sysAdmin'] },
+  { icon: Calendar, label: "日历调度", path: "/calendar", roles: ['student', 'teacher', 'labAdmin', 'sysAdmin'] },
   
   // 学生权限
   { icon: BookOpen, label: "我的课程", path: "/student/courses", roles: ['student'] },
@@ -62,6 +65,8 @@ const menuItems = [
   { icon: Monitor, label: "实验室管理", path: "/admin/labs", roles: ['labAdmin', 'sysAdmin'] },
   { icon: Settings, label: "预约审核", path: "/admin/reservations", roles: ['labAdmin', 'sysAdmin'] },
   { icon: FileText, label: "规则配置", path: "/admin/rules", roles: ['labAdmin', 'sysAdmin'] },
+  { icon: Clock, label: "开放规则", path: "/admin/opening-rules", roles: ['labAdmin', 'sysAdmin'] },
+  { icon: Ban, label: "禁用时段", path: "/admin/blocked-periods", roles: ['labAdmin', 'sysAdmin'] },
   
   // 系统管理员权限（续）
   { icon: ShieldCheck, label: "审批配置", path: "/admin/approval-config", roles: ['sysAdmin'] },

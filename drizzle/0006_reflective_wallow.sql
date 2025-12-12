@@ -1,1 +1,0 @@
-ALTER TABLE `approval_configs` ADD `autoCancelHours` decimal(5,2) DEFAULT '1';

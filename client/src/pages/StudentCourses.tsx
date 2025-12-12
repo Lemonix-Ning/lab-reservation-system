@@ -163,7 +163,13 @@ export default function StudentCourses() {
                       <MapPin className="h-4 w-4 text-blue-600 mt-1 flex-shrink-0" />
                       <div className="flex-1">
                         <p className="font-medium text-sm">{reservation.title}</p>
-                        <p className="text-xs text-gray-600">
+                        {reservation.labRoom && (
+                          <p className="text-xs text-blue-700 mt-1">
+                            📍 {reservation.labRoom.name}
+                            {reservation.labRoom.location && ` - ${reservation.labRoom.location}`}
+                          </p>
+                        )}
+                        <p className="text-xs text-gray-600 mt-1">
                           {formatDateTime(reservation.startTime)} 至 {formatDateTime(reservation.endTime)}
                         </p>
                         <p className="text-xs text-gray-500 mt-1">

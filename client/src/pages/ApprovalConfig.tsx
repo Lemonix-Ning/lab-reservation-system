@@ -60,7 +60,7 @@ const ApprovalFlowVisualizer = ({ stages }: { stages: number }) => {
                   <span className="relative inline-flex rounded-full h-3 w-3 bg-indigo-500"></span>
                 </span>
               </div>
-              <span className="text-xs font-medium text-slate-700">{idx === 0 ? "教师审批" : idx === 1 ? "院系审批" : "管理员审批"}</span>
+              <span className="text-xs font-medium text-slate-700">{`第 ${idx + 1} 级`}</span>
             </div>
           </React.Fragment>
         ))
@@ -248,32 +248,49 @@ export default function ApprovalConfigPage() {
               <p className="text-sm text-slate-500">定义预约申请需要经过的审核节点</p>
             </CardHeader>
             <CardContent className="space-y-6">
-              <div className="flex flex-col md:flex-row gap-6">
-                 <div className="w-full md:w-1/3 space-y-4">
-                    <div className="space-y-2">
-                      <Label>审批层级数</Label>
-                      <Input 
-                        type="number" 
-                        min={0} 
-                        max={3} 
-                        value={formData.enableMultiLevel}
-                        onChange={(e: any) => setFormData({...formData, enableMultiLevel: Math.min(3, Math.max(0, Number(e.target.value)))})}
-                        className="font-mono text-lg"
-                      />
-                    </div>
-                    <div className="text-xs text-slate-500 space-y-1 bg-slate-50 p-3 rounded-lg border border-slate-100">
-                       <p className="flex items-center gap-2"><span className="w-4 text-center font-bold">0</span> 自动通过（无需审批）</p>
-                       <p className="flex items-center gap-2"><span className="w-4 text-center font-bold">1</span> 仅需负责教师审批</p>
-                       <p className="flex items-center gap-2"><span className="w-4 text-center font-bold">2</span> 教师 + 院系审批</p>
-                       <p className="flex items-center gap-2"><span className="w-4 text-center font-bold">3</span> 教师 + 院系 + 管理员</p>
-                    </div>
+              <div className="space-y-4">
+                 <div className="space-y-2">
+                    <Label>审批层级数</Label>
+                    <input 
+                      type="number" 
+                      min={0} 
+                      max={3} 
+                      value={formData.enableMultiLevel}
+                      onChange={(e: any) => setFormData({...formData, enableMultiLevel: Math.min(3, Math.max(0, Number(e.target.value)))})}
+                      onWheel={(e: any) => {
+                        e.preventDefault();
+                        e.currentTarget.blur();
+                      }}
+                      className="w-full h-10 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-mono text-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                 </div>
+                 <div className="text-xs text-slate-500 space-y-1 bg-slate-50 p-3 rounded-lg border border-slate-100">
+                    <p className="flex items-center gap-2"><span className="w-4 text-center font-bold">0</span> 自动通过（无审批节点）</p>
+                    <p className="flex items-center gap-2"><span className="w-4 text-center font-bold">1</span> 单级审批（实验室管理员）</p>
+                    <p className="flex items-center gap-2"><span className="w-4 text-center font-bold">2</span> 两级审批（教师/院系 → 管理员）</p>
+                    <p className="flex items-center gap-2"><span className="w-4 text-center font-bold">3</span> 三级审批（教师 → 院系 → 管理员）</p>
                  </div>
 
                  {/* Visualizer */}
-                 <div className="flex-1 bg-slate-50 rounded-xl border border-dashed border-slate-200 p-4 flex flex-col justify-center">
-                    <Label className="mb-2 text-center w-full block text-slate-400 text-xs uppercase tracking-wider">流程预览</Label>
+                 <div className="bg-slate-50 rounded-xl border border-dashed border-slate-200 p-4 space-y-3">
+                    <Label className="block text-slate-400 text-xs uppercase tracking-wider">流程预览</Label>
                     <ApprovalFlowVisualizer stages={formData.enableMultiLevel} />
                  </div>
+              </div>
+              
+              {/* 课程预约特殊说明 */}
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 space-y-2 mt-4">
+                <h4 className="text-xs font-semibold text-blue-900 flex items-center gap-2">
+                  <AlertCircle className="h-4 w-4" />
+                  课程预约特殊说明
+                </h4>
+                <p className="text-xs text-blue-800 leading-relaxed">
+                  对于教师发起的<strong>课程预约</strong>：教师作为发起人，其"同意"已隐含在发起预约的动作中。
+                  因此，实际审批流程从配置的<strong>第一级</strong>开始。
+                </p>
+                <p className="text-xs text-blue-700 bg-blue-100 px-3 py-2 rounded border border-blue-200">
+                  示例：如配置为"两级审批（教师 → 管理员）"，课程预约将直接进入"管理员审批"阶段。
+                </p>
               </div>
             </CardContent>
           </Card>
