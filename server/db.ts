@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, lte, or, sql, lt, gt, ne } from "drizzle-orm";
+import { and, desc, eq, gte, lte, or, sql, lt, gt, ne, isNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { InsertLabReservation, InsertLabRoom, InsertLabReserveRule, InsertUser, InsertLabDevice, InsertNotification, labReservations, labRooms, labReserveRules, users, labDevices, notifications, approvalConfigs, approvalHistories, violationRecords, blacklist, auditLogs, InsertApprovalConfig, InsertApprovalHistory, InsertViolationRecord, InsertBlacklist, InsertAuditLog, courses, courseReservations, courseStudents, openingRules, blockedPeriods, InsertCourse, InsertCourseReservation, InsertCourseStudent, InsertOpeningRule, InsertBlockedPeriod, classes, classStudents, InsertClass, InsertClassStudent } from "../drizzle/schema";
 import { ENV } from './_core/env';
@@ -359,6 +359,37 @@ export async function getAllConflictingReservations(filters?: {
 }
 
 /**
+ * 获取时间段内的冲突预约详情（含用户信息）
+ * 用于前端在预约表单中显示冲突提示
+ */
+export async function getConflictingReservationDetails(labId: number, startTime: Date, endTime: Date) {
+  const db = await getDb();
+  if (!db) return [];
+
+  const conflicts = await getConflictingReservations(labId, startTime, endTime);
+  
+  // 丰富冲突预约的信息（添加用户名）
+  const enrichedConflicts = await Promise.all(
+    conflicts.map(async (conflict) => {
+      const user = await getUserById(conflict.userId);
+      return {
+        id: conflict.id,
+        title: conflict.title,
+        startTime: conflict.startTime,
+        endTime: conflict.endTime,
+        status: conflict.status,
+        userName: user?.name || '未知用户',
+        userEmail: user?.email || '',
+        peopleCount: conflict.peopleCount,
+        reason: conflict.reason,
+      };
+    })
+  );
+
+  return enrichedConflicts;
+}
+
+/**
  * 统计用户在指定日期的预约次数
  */
 export async function countUserReservationsOnDate(userId: number, date: Date) {
@@ -432,6 +463,15 @@ export async function checkReservationRules(
   }
 
   try {
+    // ========== 0. 检查时间冲突（优先级最高）==========
+    const conflicts = await getConflictingReservations(labId, startTime, endTime);
+    if (conflicts.length > 0) {
+      return {
+        valid: false,
+        reason: `选定时间段内存在 ${conflicts.length} 个冲突预约，请调整时间或查看替代方案`
+      };
+    }
+
     // ========== 1. 检查 MAX_PER_DAY（每日最大预约次数）==========
     const maxPerDayRule = await getRuleByCode("MAX_PER_DAY");
     if (maxPerDayRule && maxPerDayRule.status === "enabled") {
@@ -527,28 +567,42 @@ export async function checkReservationRules(
       // 检查预约的每一天是否都在开放时间内
       const startDate = new Date(startTime);
       const endDate = new Date(endTime);
-      
-      // 如果预约跨天，需要检查每一天
-      const checkDate = new Date(startDate);
-      while (checkDate <= endDate) {
+
+      // 仅按“日期”维度遍历，不比较具体时间戳
+      const checkDate = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
+      const endDateOnly = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
+
+      while (checkDate <= endDateOnly) {
         const dayOfWeek = checkDate.getDay(); // 0=周日, 1=周一, ..., 6=周六
         const dayRule = openingRulesList.find((r: any) => r.dayOfWeek === dayOfWeek && r.status === 'enabled');
-        
+
         if (dayRule) {
           // 解析开放时间（HH:mm格式）
           const [openHour, openMin] = dayRule.openTime.split(':').map(Number);
           const [closeHour, closeMin] = dayRule.closeTime.split(':').map(Number);
-          
+
           const ruleOpenTime = new Date(checkDate);
           ruleOpenTime.setHours(openHour, openMin, 0, 0);
           const ruleCloseTime = new Date(checkDate);
           ruleCloseTime.setHours(closeHour, closeMin, 0, 0);
-          
-          // 检查预约的开始时间和结束时间是否都在开放时间内
-          // 如果预约跨天，需要特殊处理
-          const reservationStart = checkDate.getTime() === startDate.getTime() ? startTime : new Date(checkDate.setHours(0, 0, 0, 0));
-          const reservationEnd = checkDate.getTime() === endDate.getTime() ? endTime : new Date(checkDate.setHours(23, 59, 59, 999));
-          
+
+          // 判断当前检查的日期是否为开始/结束所在日期（按年月日比较）
+          const isStartDay =
+            checkDate.getFullYear() === startDate.getFullYear() &&
+            checkDate.getMonth() === startDate.getMonth() &&
+            checkDate.getDate() === startDate.getDate();
+          const isEndDay =
+            checkDate.getFullYear() === endDate.getFullYear() &&
+            checkDate.getMonth() === endDate.getMonth() &&
+            checkDate.getDate() === endDate.getDate();
+
+          const reservationStart = isStartDay
+            ? startTime
+            : new Date(checkDate.getFullYear(), checkDate.getMonth(), checkDate.getDate(), 0, 0, 0, 0);
+          const reservationEnd = isEndDay
+            ? endTime
+            : new Date(checkDate.getFullYear(), checkDate.getMonth(), checkDate.getDate(), 23, 59, 59, 999);
+
           if (reservationStart < ruleOpenTime || reservationEnd > ruleCloseTime) {
             const dayLabel = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][dayOfWeek];
             return {
@@ -564,10 +618,9 @@ export async function checkReservationRules(
             reason: `${dayLabel}未配置开放规则，无法预约`
           };
         }
-        
-        // 移动到下一天
+
+        // 移动到下一天（仅按日期递增）
         checkDate.setDate(checkDate.getDate() + 1);
-        checkDate.setHours(0, 0, 0, 0);
       }
     }
 
@@ -668,24 +721,39 @@ export async function checkReservationRulesExceptAdvance(
     if (openingRulesList && openingRulesList.length > 0) {
       const startDate = new Date(startTime);
       const endDate = new Date(endTime);
-      const checkDate = new Date(startDate);
-      
-      while (checkDate <= endDate) {
+
+      const checkDate = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
+      const endDateOnly = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
+
+      while (checkDate <= endDateOnly) {
         const dayOfWeek = checkDate.getDay();
         const dayRule = openingRulesList.find((r: any) => r.dayOfWeek === dayOfWeek && r.status === 'enabled');
-        
+
         if (dayRule) {
           const [openHour, openMin] = dayRule.openTime.split(':').map(Number);
           const [closeHour, closeMin] = dayRule.closeTime.split(':').map(Number);
-          
+
           const ruleOpenTime = new Date(checkDate);
           ruleOpenTime.setHours(openHour, openMin, 0, 0);
           const ruleCloseTime = new Date(checkDate);
           ruleCloseTime.setHours(closeHour, closeMin, 0, 0);
-          
-          const reservationStart = checkDate.getTime() === startDate.getTime() ? startTime : new Date(checkDate.setHours(0, 0, 0, 0));
-          const reservationEnd = checkDate.getTime() === endDate.getTime() ? endTime : new Date(checkDate.setHours(23, 59, 59, 999));
-          
+
+          const isStartDay =
+            checkDate.getFullYear() === startDate.getFullYear() &&
+            checkDate.getMonth() === startDate.getMonth() &&
+            checkDate.getDate() === startDate.getDate();
+          const isEndDay =
+            checkDate.getFullYear() === endDate.getFullYear() &&
+            checkDate.getMonth() === endDate.getMonth() &&
+            checkDate.getDate() === endDate.getDate();
+
+          const reservationStart = isStartDay
+            ? startTime
+            : new Date(checkDate.getFullYear(), checkDate.getMonth(), checkDate.getDate(), 0, 0, 0, 0);
+          const reservationEnd = isEndDay
+            ? endTime
+            : new Date(checkDate.getFullYear(), checkDate.getMonth(), checkDate.getDate(), 23, 59, 59, 999);
+
           if (reservationStart < ruleOpenTime || reservationEnd > ruleCloseTime) {
             const dayLabel = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][dayOfWeek];
             return {
@@ -700,9 +768,8 @@ export async function checkReservationRulesExceptAdvance(
             reason: `${dayLabel}未配置开放规则，无法预约`
           };
         }
-        
+
         checkDate.setDate(checkDate.getDate() + 1);
-        checkDate.setHours(0, 0, 0, 0);
       }
     }
 
@@ -1059,7 +1126,7 @@ export async function getApprovalConfigForLab(labId: number) {
   const globalResult = await db
     .select()
     .from(approvalConfigs)
-    .where(or(eq(approvalConfigs.labId, 0), eq(approvalConfigs.labId, null as any)))
+    .where(or(eq(approvalConfigs.labId, 0), isNull(approvalConfigs.labId)))
     .limit(1);
   
   return globalResult.length > 0 ? globalResult[0] : undefined;
@@ -1601,15 +1668,49 @@ export async function createOpeningRule(rule: InsertOpeningRule) {
 export async function getOpeningRulesForLab(labId?: number) {
   const db = await getDb();
   if (!db) return [];
-  
-  // 优先返回特定实验室的规则，否则返回全局规则
-  if (labId) {
-    const labRules = await db.select().from(openingRules).where(eq(openingRules.labId, labId)).orderBy(openingRules.dayOfWeek);
-    if (labRules.length > 0) return labRules;
+
+  // 如果未指定实验室，仅返回全局规则（配置页“全局规则”使用）
+  if (!labId) {
+    return await db
+      .select()
+      .from(openingRules)
+      .where(or(isNull(openingRules.labId), eq(openingRules.labId, 0)))
+      .orderBy(openingRules.dayOfWeek);
   }
-  
-  // 返回全局规则（labId为NULL）
-  return await db.select().from(openingRules).where(or(eq(openingRules.labId, null as any), eq(openingRules.labId, 0))).orderBy(openingRules.dayOfWeek);
+
+  // 实验室视角：按“实验室专属规则优先，其次按天级别回退全局规则”合并
+  const [labRules, globalRules] = await Promise.all([
+    db
+      .select()
+      .from(openingRules)
+      .where(eq(openingRules.labId, labId))
+      .orderBy(openingRules.dayOfWeek),
+    db
+      .select()
+      .from(openingRules)
+      .where(or(isNull(openingRules.labId), eq(openingRules.labId, 0)))
+      .orderBy(openingRules.dayOfWeek),
+  ]);
+
+  if (labRules.length === 0) {
+    // 没有任何专属规则时，完全回退到全局规则
+    return globalRules;
+  }
+
+  const labDays = new Set(labRules.map((r: any) => r.dayOfWeek));
+  const merged: any[] = [...labRules];
+
+  // 只对“尚未配置实验室专属规则的星期几”追加全局规则，实现按天级别的兜底
+  for (const g of globalRules as any[]) {
+    if (!labDays.has(g.dayOfWeek)) {
+      merged.push(g);
+    }
+  }
+
+  // 按 dayOfWeek 排序，方便前端展示
+  merged.sort((a, b) => (a.dayOfWeek ?? 0) - (b.dayOfWeek ?? 0));
+
+  return merged;
 }
 
 export async function updateOpeningRule(id: number, rule: Partial<InsertOpeningRule>) {

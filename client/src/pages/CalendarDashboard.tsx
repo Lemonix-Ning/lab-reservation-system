@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { 
   AlertCircle, 
+  AlertTriangle,
   TrendingUp, 
   FileText, 
   CheckCircle, 
@@ -25,7 +26,8 @@ import {
   ChevronLeft,
   ChevronRight,
   RefreshCw,
-  Download
+  Download,
+  Lightbulb
 } from 'lucide-react';
 import { format, startOfMonth, endOfMonth, addMonths, subMonths } from 'date-fns';
 import { trpc } from '@/lib/trpc';
@@ -40,6 +42,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
 interface CalendarEvent {
   id: number;
@@ -75,15 +83,23 @@ export default function CalendarPage() {
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const [alternativeSlots, setAlternativeSlots] = useState<AlternativeSlot[]>([]);
-  const [showConflictDialog, setShowConflictDialog] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const [showConflictsOnly, setShowConflictsOnly] = useState(false);
   const [showMobileFilters, setShowMobileFilters] = useState(false);
 
   const queryClient = useQueryClient();
-  const { data: labsData } = trpc.labRoom.list.useQuery();
-  const { data: devicesData } = trpc.device.list.useQuery();
-  const { data: coursesData } = trpc.course.list.useQuery();
+  const { data: labsData } = trpc.labRoom.list.useQuery(undefined, { 
+    staleTime: 1000 * 60 * 60, // 1小时缓存
+    gcTime: 1000 * 60 * 60 * 2  // 2小时垃圾回收
+  });
+  const { data: devicesData } = trpc.device.list.useQuery(undefined, { 
+    staleTime: 1000 * 60 * 60, 
+    gcTime: 1000 * 60 * 60 * 2 
+  });
+  const { data: coursesData } = trpc.course.list.useQuery(undefined, { 
+    staleTime: 1000 * 60 * 30, // 30分钟缓存
+    gcTime: 1000 * 60 * 60 
+  });
 
   // 获取选中事件的完整详情
   const { data: reservationDetails, refetch: refetchDetails } = trpc.calendar.getReservationDetails.useQuery(
@@ -126,10 +142,12 @@ export default function CalendarPage() {
     : skipToken;
   
   const { data: conflictingReservations, isLoading: conflictsLoading, error: conflictsError } = trpc.calendar.getConflictingReservations.useQuery(
-    conflictQueryParams
+    conflictQueryParams,
+    { staleTime: 1000 * 60 * 5 } // 5分钟缓存冲突检测结果
   );
 
   // 根据维度调用不同的 API
+  // 注意：日历数据按日期分组缓存，同一日期的查询将复用缓存
   const { data: labCalendarData, isLoading: labCalendarLoading } = trpc.calendar.getLabCalendar.useQuery(
     dimension === 'lab' && selectedLab
       ? {
@@ -138,7 +156,8 @@ export default function CalendarPage() {
           endDate: endOfMonth(currentDate).toISOString(),
           viewType: viewType,
         }
-      : skipToken
+      : skipToken,
+    { staleTime: 1000 * 60 * 10, gcTime: 1000 * 60 * 30 } // 10分钟缓存，30分钟回收
   );
 
   const { data: deviceCalendarData, isLoading: deviceCalendarLoading } = trpc.calendar.getDeviceCalendar.useQuery(
@@ -149,7 +168,8 @@ export default function CalendarPage() {
           endDate: endOfMonth(currentDate).toISOString(),
           viewType: viewType,
         }
-      : skipToken
+      : skipToken,
+    { staleTime: 1000 * 60 * 10, gcTime: 1000 * 60 * 30 }
   );
 
   const { data: courseCalendarData, isLoading: courseCalendarLoading } = trpc.calendar.getAllCourseCalendar.useQuery(
@@ -159,7 +179,8 @@ export default function CalendarPage() {
           startDate: startOfMonth(currentDate).toISOString(),
           endDate: endOfMonth(currentDate).toISOString(),
         }
-      : skipToken
+      : skipToken,
+    { staleTime: 1000 * 60 * 10, gcTime: 1000 * 60 * 30 }
   );
 
   const calendarData = dimension === 'lab' 
@@ -188,7 +209,8 @@ export default function CalendarPage() {
           startDate: startOfMonth(currentDate).toISOString(),
           endDate: endOfMonth(currentDate).toISOString(),
         }
-      : skipToken
+      : skipToken,
+    { staleTime: 1000 * 60 * 15, gcTime: 1000 * 60 * 60 } // 热力图数据变化不频繁，缓存15分钟
   );
 
   // 前端冲突检测（用于 UI 显示）
@@ -209,7 +231,6 @@ export default function CalendarPage() {
         startTime: new Date(slot.startTime),
         endTime: new Date(slot.endTime),
       })));
-      setShowConflictDialog(true);
     }
   }, [conflictSuggestions]);
 
@@ -267,10 +288,7 @@ export default function CalendarPage() {
   };
 
   const handleConflictCheck = async () => {
-    // 用户点击获取替代方案时的处理
-    // 立即打开对话框显示加载状态
-    setShowConflictDialog(true);
-    // 手动触发查询
+    // 刷新替代方案列表（无需打开新 Dialog）
     if (reservationDetails) {
       await refetchSuggestions();
     }
@@ -325,13 +343,13 @@ export default function CalendarPage() {
   };
 
   // 导出为 HTML 格式（可直接查看）
-  const handleExportCalendar = () => {
+  const handleExportCalendar = (exportFormat: 'html' | 'ics' | 'pdf' = 'ics') => {
     if (events.length === 0) {
       alert('当前没有可导出的预约事件');
       return;
     }
 
-    // 准备导出数据（导出所有状态的事件，因为 HTML 可以直接查看）
+    // 准备导出数据（导出所有状态的事件，因为导出格式可以直接查看）
     const exportEvents = events.map(event => ({
       id: event.id,
       title: event.title,
@@ -359,7 +377,17 @@ export default function CalendarPage() {
     const title = `预约日历 - ${dimensionStr} - ${resourceName}`;
     const subtitle = `${dateStr} | 共 ${exportEvents.length} 个预约`;
 
-    exportToHTML(exportEvents, filename, { title, subtitle });
+    // 根据选择的格式导出
+    if (exportFormat === 'ics') {
+      exportToICalendar(exportEvents, filename);
+    } else if (exportFormat === 'pdf') {
+      // 打印为 PDF：先生成 HTML，然后打开打印对话框
+      exportToHTML(exportEvents, filename, { title, subtitle });
+      // 延迟后打开打印对话框
+      setTimeout(() => window.print(), 500);
+    } else {
+      exportToHTML(exportEvents, filename, { title, subtitle });
+    }
   };
 
   const handleApplyAlternativeSlot = async (slot: AlternativeSlot, bypassAdvanceRule = false) => {
@@ -393,7 +421,6 @@ export default function CalendarPage() {
         alert('预约时间已更新成功！');
       }
       
-      setShowConflictDialog(false);
       setSelectedEvent(null);
       // 刷新所有相关查询 - 使用 exact: false 确保包含所有子查询
       await Promise.all([
@@ -637,16 +664,30 @@ export default function CalendarPage() {
                         </button>
                       ))}
                     </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handleExportCalendar}
-                      className="flex-shrink-0 touch-manipulation"
-                      title="导出为 iCalendar 格式"
-                    >
-                      <Download className={`${isMobile ? 'w-4 h-4' : 'w-4 h-4 mr-1.5'}`} />
-                      {!isMobile && <span className="text-xs">导出</span>}
-                    </Button>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="flex-shrink-0 touch-manipulation"
+                          title="导出日历数据"
+                        >
+                          <Download className={`${isMobile ? 'w-4 h-4' : 'w-4 h-4 mr-1.5'}`} />
+                          {!isMobile && <span className="text-xs">导出</span>}
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => handleExportCalendar('ics')}>
+                          导出为 iCalendar (.ics)
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleExportCalendar('html')}>
+                          导出为 HTML (可查看)
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleExportCalendar('pdf')}>
+                          导出为 PDF (可打印)
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
                 )}
               </CardHeader>
@@ -787,8 +828,9 @@ export default function CalendarPage() {
             </Card>
 
             {/* 预约详情模态框 */}
-            <Dialog open={!!selectedEvent} onOpenChange={(open) => !open && setSelectedEvent(null)}>
-              <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto rounded-2xl">
+            {selectedEvent && (
+              <Dialog open={!!selectedEvent} onOpenChange={(open) => !open && setSelectedEvent(null)} key={selectedEvent.id}>
+                <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto rounded-2xl">
                 {selectedEvent && (
                   <>
                     <DialogHeader className="pb-4 border-b border-gray-100">
@@ -848,26 +890,64 @@ export default function CalendarPage() {
                         </div>
                       )}
                       
-                      {/* 显示冲突详情列表 */}
-                      {conflictDetails && conflictDetails.length > 0 && (
-                        <div className="space-y-2">
-                          <p className="text-xs font-semibold text-red-800">冲突的预约：</p>
-                          <div className="max-h-40 overflow-y-auto space-y-2">
-                            {conflictDetails.map((conflict: any) => (
-                              <div key={conflict.id} className="bg-white rounded-lg p-2 text-xs border border-red-200">
-                                <div className="flex items-center justify-between">
-                                  <span className="font-medium text-gray-900">{conflict.title}</span>
-                                  <Badge variant="outline" className="text-xs">{conflict.status === 'approved' ? '已批准' : '待审核'}</Badge>
-                                </div>
-                                <div className="text-gray-600 mt-1">
-                                  {format(new Date(conflict.startTime), 'MM-dd HH:mm')} - {format(new Date(conflict.endTime), 'HH:mm')}
-                                </div>
-                                {conflict.applicant && (
-                                  <div className="text-gray-500 mt-1">申请人: {conflict.applicant.name}</div>
-                                )}
+                      {/* 显示冲突详情列表与替代建议（集成在预约详情内）*/}
+                      {((conflictDetails && conflictDetails.length > 0) || alternativeSlots.length > 0) && (
+                        <div className="border-t border-gray-100 pt-4 mt-4 space-y-4">
+                          {/* 冲突的预约列表 */}
+                          {conflictDetails && conflictDetails.length > 0 && (
+                            <div className="space-y-2">
+                              <p className="text-xs font-semibold text-red-800 flex items-center gap-1">
+                                <AlertTriangle className="h-4 w-4 text-red-600" />
+                                冲突的预约（{conflictDetails.length}个）：
+                              </p>
+                              <div className="max-h-48 overflow-y-auto space-y-2">
+                                {conflictDetails.map((conflict: any) => (
+                                  <div key={conflict.id} className="bg-white rounded-lg p-2 text-xs border border-red-200">
+                                    <div className="flex items-center justify-between">
+                                      <span className="font-medium text-gray-900">{conflict.title}</span>
+                                      <Badge variant="outline" className="text-xs">{conflict.status === 'approved' ? '已批准' : '待审核'}</Badge>
+                                    </div>
+                                    <div className="text-gray-600 mt-1">
+                                      {format(new Date(conflict.startTime), 'MM-dd HH:mm')} - {format(new Date(conflict.endTime), 'HH:mm')}
+                                    </div>
+                                    {conflict.applicant && (
+                                      <div className="text-gray-500 mt-1">申请人: {conflict.applicant.name}</div>
+                                    )}
+                                  </div>
+                                ))}
                               </div>
-                            ))}
-                          </div>
+                            </div>
+                          )}
+
+                          {/* 替代建议列表 */}
+                          {alternativeSlots.length > 0 && (
+                            <div className="space-y-2">
+                              <div className="flex items-center justify-between">
+                                <p className="text-xs font-semibold text-indigo-700 flex items-center gap-1">
+                                  <Lightbulb className="h-4 w-4 text-indigo-600" />
+                                  智能调度建议
+                                </p>
+                                {suggestionsLoading && <RefreshCw className="h-4 w-4 animate-spin text-indigo-600" />}
+                              </div>
+                              <div className="max-h-48 overflow-y-auto space-y-2">
+                                {alternativeSlots.map((slot, idx) => (
+                                  <div key={idx} className="flex items-center justify-between p-3 bg-indigo-50 border border-indigo-100 rounded-lg text-xs">
+                                    <div>
+                                      <div className="font-medium text-indigo-900">
+                                        {format(new Date(slot.startTime), 'MM/dd HH:mm')} - {format(new Date(slot.endTime), 'HH:mm')}
+                                      </div>
+                                      <Badge className="bg-indigo-100 text-indigo-700 hover:bg-indigo-100 text-xs mt-1">
+                                        匹配度 {Math.round(slot.confidence * 100)}%
+                                      </Badge>
+                                    </div>
+                                    <Button size="sm" onClick={() => handleApplyAlternativeSlot(slot, false)} className="bg-indigo-600 hover:bg-indigo-700 text-xs">
+                                      采用
+                                    </Button>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
                         </div>
                       )}
 
@@ -966,68 +1046,11 @@ export default function CalendarPage() {
                 )}
               </DialogContent>
             </Dialog>
+            )}
           </div>
         </div>
       </div>
 
-      {/* 冲突替代方案对话框 */}
-      <Dialog open={showConflictDialog} onOpenChange={setShowConflictDialog}>
-        <DialogContent className="sm:max-w-[600px] rounded-2xl">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-indigo-700">
-              <TrendingUp className="w-5 h-5" /> 智能调度建议
-            </DialogTitle>
-            <DialogDescription>
-              AI 已为您分析资源占用情况，推荐以下无冲突的时间段：
-            </DialogDescription>
-          </DialogHeader>
-          <div className="py-4 space-y-3">
-            {suggestionsLoading ? (
-              <div className="text-center py-8 text-gray-500">
-                <RefreshCw className="h-8 w-8 mx-auto animate-spin mb-2 text-gray-300" />
-                正在分析可用时间段...
-              </div>
-            ) : alternativeSlots.length === 0 ? (
-              <div className="text-center py-8 text-gray-500">暂无合适的替代方案，请尝试更换日期。</div>
-            ) : (
-              alternativeSlots.map((slot, idx) => (
-                <div key={idx} className="flex items-center justify-between p-4 bg-indigo-50 border border-indigo-100 rounded-xl hover:shadow-md transition-all group">
-                  <div>
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="font-bold text-indigo-900 text-lg">
-                        {format(new Date(slot.startTime), 'yyyy/MM/dd HH:mm')} - {format(new Date(slot.endTime), 'HH:mm')}
-                      </span>
-                      <Badge className="bg-indigo-100 text-indigo-700 hover:bg-indigo-100">
-                        匹配度 {Math.round(slot.confidence * 100)}%
-                      </Badge>
-                    </div>
-                    <p className="text-xs text-indigo-600">可用容量: {slot.availableCapacity}</p>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button size="sm" onClick={() => handleApplyAlternativeSlot(slot, false)} className="bg-indigo-600 hover:bg-indigo-700">
-                      采用此方案
-                    </Button>
-                    {(user?.role === 'labAdmin' || user?.role === 'sysAdmin') && (
-                      <Button 
-                        size="sm" 
-                        variant="outline"
-                        onClick={() => handleApplyAlternativeSlot(slot, true)} 
-                        className="border-amber-500 text-amber-700 hover:bg-amber-50"
-                        title="绕过提前预约规则（仅管理员）"
-                      >
-                        绕过规则
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setShowConflictDialog(false)}>关闭</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
+</div>
   );
 }

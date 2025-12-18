@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { Bell, Check, CheckCheck, Trash2 } from "lucide-react";
+import { AlarmClock, Ban, Bell, Check, CheckCheck, CircleCheck, CircleX, Megaphone, Mail, Trash2 } from "lucide-react";
 import { Link } from "wouter";
 
 /**
@@ -53,17 +53,17 @@ export default function NotificationCenter() {
   const getNotificationIcon = (type: string) => {
     switch (type) {
       case 'reservation_approved':
-        return <div className="text-2xl">✅</div>;
+        return <CircleCheck className="h-6 w-6 text-green-600" />;
       case 'reservation_rejected':
-        return <div className="text-2xl">❌</div>;
+        return <CircleX className="h-6 w-6 text-red-600" />;
       case 'reservation_cancelled':
-        return <div className="text-2xl">🚫</div>;
+        return <Ban className="h-6 w-6 text-gray-600" />;
       case 'reservation_reminder':
-        return <div className="text-2xl">⏰</div>;
+        return <AlarmClock className="h-6 w-6 text-amber-600" />;
       case 'system':
-        return <div className="text-2xl">📢</div>;
+        return <Megaphone className="h-6 w-6 text-blue-600" />;
       default:
-        return <div className="text-2xl">📬</div>;
+        return <Mail className="h-6 w-6 text-slate-600" />;
     }
   };
 

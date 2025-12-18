@@ -1,4 +1,4 @@
-import { Bell } from "lucide-react";
+import { AlarmClock, Ban, Bell, CircleCheck, CircleX, Megaphone, Mail } from "lucide-react";
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "./ui/button";
@@ -61,17 +61,17 @@ export function NotificationBell() {
   const getNotificationIcon = (type: string) => {
     switch (type) {
       case 'reservation_approved':
-        return '✅';
+        return <CircleCheck className="h-5 w-5 text-green-600" />;
       case 'reservation_rejected':
-        return '❌';
+        return <CircleX className="h-5 w-5 text-red-600" />;
       case 'reservation_cancelled':
-        return '🚫';
+        return <Ban className="h-5 w-5 text-gray-600" />;
       case 'reservation_reminder':
-        return '⏰';
+        return <AlarmClock className="h-5 w-5 text-amber-600" />;
       case 'system':
-        return '📢';
+        return <Megaphone className="h-5 w-5 text-blue-600" />;
       default:
-        return '📬';
+        return <Mail className="h-5 w-5 text-slate-600" />;
     }
   };
 
@@ -136,7 +136,7 @@ export function NotificationBell() {
                 onClick={() => handleNotificationClick(notification.id, notification.isRead)}
               >
                 <div className="flex gap-3 w-full">
-                  <div className="text-xl flex-shrink-0">
+                  <div className="flex-shrink-0 mt-0.5">
                     {getNotificationIcon(notification.type)}
                   </div>
                   <div className="flex-1 min-w-0">

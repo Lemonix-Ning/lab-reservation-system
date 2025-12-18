@@ -13,6 +13,7 @@ export function useReservationRules() {
     startTime: Date;
     endTime: Date;
   } | null>(null);
+  const [conflictingReservations, setConflictingReservations] = useState<any[]>([]);
 
   // 获取启用的规则列表
   const { data: enabledRules } = trpc.rule.listEnabled.useQuery();
@@ -22,6 +23,14 @@ export function useReservationRules() {
     preCheckParams as any,
     {
       enabled: !!preCheckParams,
+    }
+  );
+
+  // 获取冲突预约详情
+  const { data: conflictDetails } = trpc.rule.getConflictingReservations.useQuery(
+    preCheckParams as any,
+    {
+      enabled: !!preCheckParams && preCheckResult && !preCheckResult.valid,
     }
   );
 
@@ -44,15 +53,24 @@ export function useReservationRules() {
         setErrorMessage(preCheckResult.reason || "预约不符合规则要求");
       } else {
         setErrorMessage("");
+        setConflictingReservations([]);
       }
       setIsChecking(false);
     }
   }, [preCheckResult]);
 
+  // 同步冲突预约详情
+  useEffect(() => {
+    if (conflictDetails) {
+      setConflictingReservations(conflictDetails);
+    }
+  }, [conflictDetails]);
+
   // 当预检查参数清除时，也清除错误信息
   useEffect(() => {
     if (!preCheckParams) {
       setErrorMessage("");
+      setConflictingReservations([]);
     }
   }, [preCheckParams]);
 
@@ -92,5 +110,6 @@ export function useReservationRules() {
     isChecking,
     enabledRules,
     formatRuleDescription,
+    conflictingReservations,
   };
 }

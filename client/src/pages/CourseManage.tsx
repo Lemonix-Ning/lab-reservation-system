@@ -914,7 +914,8 @@ export default function CourseManage() {
                             <p className="font-medium text-slate-800 text-sm">{reservation.title}</p>
                             {reservation.labRoom && (
                               <p className="text-xs text-blue-600 mt-1">
-                                📍 {reservation.labRoom.name}
+                                <MapPin className="h-3.5 w-3.5 text-blue-600 inline-block mr-1 -mt-0.5" />
+                                {reservation.labRoom.name}
                                 {reservation.labRoom.location && ` - ${reservation.labRoom.location}`}
                               </p>
                             )}

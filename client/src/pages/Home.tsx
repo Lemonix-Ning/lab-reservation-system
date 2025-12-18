@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { getLoginUrl } from "@/const";
 import { useRole } from "@/contexts/RoleContext";
-import { Calendar, Clock, FlaskConical, Users, LayoutDashboard } from "lucide-react";
+import { BarChart3, Calendar, Clock, FlaskConical, Users, LayoutDashboard } from "lucide-react";
 import { Link } from "wouter";
 
 export default function Home() {
@@ -112,7 +112,8 @@ export default function Home() {
                       <CardHeader>
                         <CardTitle className="flex items-center gap-2 text-blue-700">
                           <LayoutDashboard className="h-5 w-5" />
-                          📊 AI 数据仪表板
+                          <BarChart3 className="h-5 w-5" />
+                          AI 数据仪表板
                         </CardTitle>
                         <CardDescription>
                           查看统计数据、AI 智能洞察报告

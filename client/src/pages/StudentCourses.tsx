@@ -165,7 +165,8 @@ export default function StudentCourses() {
                         <p className="font-medium text-sm">{reservation.title}</p>
                         {reservation.labRoom && (
                           <p className="text-xs text-blue-700 mt-1">
-                            📍 {reservation.labRoom.name}
+                            <MapPin className="h-3.5 w-3.5 text-blue-700 inline-block mr-1 -mt-0.5" />
+                            {reservation.labRoom.name}
                             {reservation.labRoom.location && ` - ${reservation.labRoom.location}`}
                           </p>
                         )}

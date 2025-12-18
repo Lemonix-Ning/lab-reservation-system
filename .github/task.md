@@ -26,7 +26,40 @@
 
 ---
 
-## 一、P0 模块  已完成
+## 一、P0 模块  未完成
+
+### 0. 用户中心与个人信息管理（P0 基础功能）
+
+目标：为所有用户提供个人资料查看和安全管理能力。
+
+#### 0.1 核心需求
+
+- 用户信息查看
+- [x] 功能说明：查看个人资料信息与角色
+- [x] 操作说明：点击用户中心即可查看个人资料
+- [x] 显示字段：姓名、邮箱、登录方式、角色、最后登录时间
+- [x] 权限：已登录用户可查看自己的信息
+
+- 修改密码
+- [x] 功能说明：密码修改通过统一认证平台进行
+- [x] 操作说明：进入统一认证平台，按提示完成密码修改
+- [x] 实现方式：提供统一认证平台的入口链接和指导文案
+- [x] 权限：已登录用户可访问修改密码入口
+
+#### 0.2 代码位置
+
+- 前端：[client/src/pages/Profile.tsx](client/src/pages/Profile.tsx)（个人资料页面，待补完）
+- 后端：[server/routers.ts](server/routers.ts)（auth.me 查询当前用户信息）
+- 上下文：[client/src/_core/hooks/useAuth.ts](client/src/_core/hooks/useAuth.ts)（用户认证状态管理）
+
+#### 0.3 验收准则
+
+- [x] 用户可在导航栏/菜单中找到"用户中心"或个人资料入口
+- [x] 点击进入后能看到完整的个人信息（姓名、邮箱、角色、登录方式等）
+- [x] 页面提供指向统一认证平台修改密码的清晰入口和说明
+- [x] 权限控制正确：仅登录用户可访问
+
+---
 
 ### 1. 审批与违规则管理（P0） 
 
@@ -267,21 +300,16 @@
 - [x] 导出功能：导出为 HTML 格式（可直接查看）✅ 2025-12-21
 - [x] 预约详情模态框：改善交互体验 ✅ 2025-12-21
 
-**后续优化**（可选，优先级低）：
-- [ ] 导出功能：导出为 iCalendar 格式（供日历应用导入）
-- [ ] 导出功能：导出为 PDF 格式（打印友好）
-
-**中期扩展**（依赖其他模块）：
-- [x] 集成设备列表显示（需要 reservation_devices 关联表）
-- [x] 课程信息显示（需要 lab_reservations 添加 courseId 字段）
-- [x] 实现 `reservation.update` mutation 完成重新安排功能
-- [x] 显示具体冲突信息（显示冲突的其他预约详情）
+**后续优化**（P2-1 后期完成）✅ 2025-12-17：
+- [x] 导出功能：导出为 iCalendar 格式（供日历应用导入）✅ 已实现
+- [x] 导出功能：导出为 PDF 格式（打印友好）✅ 已实现
+- [x] 批量冲突检测：预约表单中实时显示冲突预约详情 ✅ 已实现
+- [x] 缓存优化：React Query 按资源维度分层缓存，减少数据库查询 ✅ 已实现
 
 **长期优化**（性能相关）：
-- [ ] 批量冲突检测（创建预约前预检查）
-- [ ] 管理员强制覆盖选项（忽略冲突警告）
-- [ ] 缓存策略：按天/周缓存日历数据
-- [ ] WebSocket 实时更新：预约状态变更自动刷新
+- [ ] 批量冲突检测（创建预约前预检查）- 已由前端实时检测覆盖
+- [ ] 管理员强制覆盖选项（忽略冲突警告）- 优先级低，推迟到后续迭代
+- [ ] WebSocket 实时更新：预约状态变更自动刷新 - 推迟到后续迭代
 
 ---
 
@@ -305,33 +333,80 @@
 
 ---
 
-### 6. AI 智能增强（P2-2） 📋 规划中
+### 6. AI 智能化调度增强（P2-2） 📋 规划中
 
 **优先级调整**：由 P2 → P2-2（次要，依赖日历）  
 **原因**：依赖日历数据聚合，可选扩展功能
 
 #### 6.1 核心用例
 
-- 预约推荐
-- [x] 用户选择时间范围时，返回 2-3 个替代建议（基于当前实现的智能替代方案算法：同日±1-12小时、后续21天同一时间段、工作时间6:00-22:00、间隙分析+置信度排序）
+ - S1 智能时间推荐（个人预约 / 主动资源优化）
+ - [x] 当前：用户选择时间范围时，返回 2-3 个替代建议（基于现有智能替代方案算法：同日 ±1-12 小时、后续 21 天同一时间段、工作时间 6:00-22:00、间隙分析 + 置信度排序）
+ - [ ] 下一步：在此基础上结合用户历史习惯、实验室利用率和课程表，输出 2-3 个“更优时间段”及推荐理由
 
-- 批量排期建议
-- [ ] 为课程/教师生成最优批量预约方案
+ - S2 智能实验方案推荐
+ - [ ] 用户用自然语言描述实验目的/背景，系统生成所需设备、建议实验室类型、预估时长、注意事项等结构化方案，并可一键带入预约表单
 
-- 周期性报告
-- [ ] 周/月级别摘要：使用统计、异常（高冲突/高违约）、优化建议
+ - S3 实验伙伴匹配
+ - [ ] 在同一时间段、相同/相近实验室中，根据专业/研究方向/技能标签匹配潜在协作伙伴，输出匹配度与说明
 
-#### 6.2 接口设计
+ - S4 周期性报告 & 主动资源优化
+ - [ ] 自动生成周/月报：使用统计、冲突/违约热点、推荐的资源优化建议（如“建议扩展周三晚间开放时段”）
+ - [ ] 为课程/教师生成可执行的批量排期建议（在合法时间窗内给出一组推荐排期）
 
-- POST /api/ai/recommend：推荐接口（输入：时间窗、用户角色、资源约束；输出：候选列表 + 置信度）
-- GET /api/ai/report?range=...&scope=...：报告接口（输出：结构化 JSON + Markdown 渲染）
+#### 6.2 模块与接口设计
 
-#### 6.3 实现要求
+**后端模块（server）**
 
-- [x] 首版使用规则+统计模型（当前替代方案算法基于预约数据与规则引擎）
-- [ ] 后续可引入外部大模型（参考 .github/copilot-instructions.md 的 AI 调用规范）
-- [x] 所有建议必须审计日志记录（已通过预约更新与审核日志间接记录）
-- [ ] 可解释性：向管理员展示"为什么这样推荐"（需补充前端提示文案和后端说明字段）
+- 数据表（drizzle/schema.ts）
+  - [ ] `ai_configs`：全局权重、阈值与功能开关（角色/实验类型权重、违约惩罚系数、实验室均衡度因子等），支持多套配置（演示 / 生产），使用 `is_default` 标记默认配置
+  - [ ] `user_stats`：用户近 N 次预约统计（常用时间窗、爽约率、常用实验室等特征），由定时任务/离线 Job 聚合生成，避免阻塞实时预约接口
+  - [ ] `user_tags`：用户专业、研究方向、技能标签，考虑增加 `onboarding_completed` 标记，首次登录时引导用户完成标签补全
+  - [ ] `ai_recommendation_logs`：每次 AI 调用的输入摘要、输出结果、命中方案、用户反馈
+
+- 服务层（可在 server/db.ts 或独立模块中实现）
+  - [ ] `AiRuleService`（L1）：封装规则过滤与候选时间段生成，复用 `checkReservationRules`、`getAlternativeTimeSlots`
+  - [ ] `AiScoreService`（L2）：基于可配置权重实现 `scoreTimeSlot`、`scorePartner` 等评分函数
+  - [ ] `AiExplainService`（L3）：封装星火调用，统一生成“推荐理由”和可解释性字段
+
+- tRPC 路由（server/routers.ts）
+  - [ ] `ai.recommendTimeSlots(input)`：智能时间推荐 / 主动资源优化（输入：期望时间窗、用户/课程信息；输出：候选列表 + 置信度 + 结构化原因）
+  - [ ] `ai.recommendExperimentPlan(input)`：实验方案推荐（输入：自然语言需求 + 专业信息；输出：结构化方案 + 推荐理由）
+  - [ ] `ai.recommendPartners(input)`：实验伙伴匹配（输入：时间段、实验室、用户标签；输出：候选人列表 + 匹配度 + 说明）
+  - [ ] `ai.generateUsageReport(input)`：周期性报告（输入：时间范围/范围；输出：结构化 JSON + Markdown 摘要）
+
+**前端模块（client）**
+
+- [ ] Hook：`useAiRecommendations`，统一封装上述 tRPC 调用、加载态与错误处理
+- [ ] 组件：
+  - [ ] 预约表单/日历右侧“AI 推荐时间”卡片（LabRoomList / CalendarDashboard 复用）
+  - [ ] “AI 实验方案”抽屉组件：展示结构化方案并支持一键填充预约表单
+  - [ ] “推荐伙伴”列表与协作邀请入口
+
+#### 6.3 实现要求（L1 / L2 / L3 分层）
+
+- L1 规则层（已部分完成）
+  - [x] 所有推荐在生成候选时必须通过规则与冲突检测（复用 `checkReservationRules`、`getAlternativeTimeSlots`）
+  - [ ] 统一错误码设计（如 `MAX_PER_DAY_EXCEEDED`、`TIME_CONFLICT` 等），供前端展示与报告统计使用
+
+- L2 评分层（本轮 AI 的核心增量）
+  - [ ] 在 `AiScoreService` 中实现 `scoreTimeSlot`：综合用户角色、实验类型、时间紧急度、违约历史、实验室使用均衡度、用户常用时间窗等特征，并对各特征做归一化（Normalization），防止某一维度数值范围过大导致权重失衡
+  - [ ] 为每个候选时间段计算 `confidence`（0-1）和特征贡献度（用于 L3 可解释性）
+  - [ ] 对伙伴匹配实现 `scorePartner`：基于专业/方向/技能标签和历史协作记录给出匹配度
+
+- L3 解释与大模型层（可按需逐步引入）
+  - [ ] 基于 server/_core/llm.ts / xfspark.ts 定义统一 LLM 调用包装
+  - [ ] 为时间推荐、实验方案、伙伴匹配分别定义 `explanationTemplate`，将结构化评分结果转化为简短中文说明
+  - [ ] LLM 解释采用异步/单独接口：推荐主接口仅返回 L2 结果，前端可额外调用 `ai.getExplanation` 或使用流式展示，避免 2-5 秒 LLM 延迟阻塞预约流程
+
+- 审计与可观测性
+  - [x] 所有 AI 推荐写入 `ai_recommendation_logs`（或沿用现有审计日志），至少包含 userId、输入摘要、top-N 推荐结果、是否被采纳
+  - [ ] 管理端提供简单的 AI 调用列表与筛选（按时间、功能类型、用户）
+
+- 隐私与安全
+  - [ ] 实验伙伴匹配结果默认不暴露真实姓名/联系方式，仅返回角色、专业、标签、匹配度等概要信息及受控的邀请 handle
+  - [ ] “邀请协作”通过站内信/通知完成，双方同意后才可互相查看具体联系方式
+  - [ ] 在管理员端/日志中也应避免展示不必要的个人敏感信息
 
 #### 6.4 验收准则
 
@@ -344,6 +419,113 @@
 - [ ] 替代方案算法考虑用户历史偏好时段（统计用户常用时间窗）
 - [ ] 引入实验室利用率、设备占用情况作为推荐权重
 - [ ] 支持多实验室候选（当前限定单实验室）
+- [ ] 主动资源优化评分模型：将用户角色、实验类型、紧急度、违约历史、实验室均衡度等抽象为可配置权重，并用于排序推荐结果
+- [ ] 智能实验方案推荐：基于用户自然语言需求 + 专业信息，调用讯飞星火生成所需设备、建议实验室类型、预估时长、注意事项等结构化 JSON（recommendExperimentPlan）
+- [ ] 智能时间推荐：在现有替代时间槽基础上，引入用户习惯/课程表/实验室利用率等统计特征，并通过星火生成“最佳时间段 + 置信度 + 推荐理由”（recommendBestTime）
+- [ ] 实验伙伴匹配系统：根据预约时间、实验室、专业、研究方向和技能标签筛选候选人，由星火计算匹配度并给出可解释的协作建议
+
+#### 6.6 开发实施路线图（六阶段）
+
+> 目标：给 P2-2 提供一套可直接照着执行的工程化路线，从 DB → 服务层 → API → 前端 → LLM → Demo 打磨，尽量避免“想法落不了地”。
+
+**阶段一：基础设施与数据库层（Infrastructure & DB）**
+
+- Step 1.1 Schema 定义与迁移
+  - [ ] 在 [drizzle/schema.ts](drizzle/schema.ts) 新增/扩展以下表结构：
+    - `ai_configs`：`key`(PK)、`value`(JSON/数值)、`description`、`is_default`、`updated_at`
+    - `user_stats`：`user_id`(FK)、`favorite_time_slots`(JSON)、`no_show_rate`(Float)、`last_updated`
+    - `user_tags`：`user_id`(FK)、`tags`(string[])、`research_area`、`onboarding_completed`(Boolean)
+    - 复用 `audit_logs` 或新增 `ai_recommendation_logs`：记录 AI 调用输入摘要、输出结果、命中方案、用户反馈
+  - [ ] 运行 `pnpm db:push`，确认数据库迁移成功
+
+- Step 1.2 种子数据与 Mock 脚本
+  - [ ] 在 [scripts/](scripts) 下扩展现有 `seed.mjs` 或新增 `seed-ai.mjs`：
+    - 插入一套默认权重配置到 `ai_configs`（含“生产配置”“DEMO 配置”两套）
+    - 生成约 50 个虚拟用户及其 `user_tags`（专业、研究方向、技能标签）
+    - 为部分用户生成历史预约记录，为后续 `user_stats` 聚合提供原始数据
+  - [ ] 验证数据库中存在可用于调度算法的测试数据
+
+**阶段二：L1 & L2 核心服务层（Core Services）**
+
+- Step 2.1 规则服务封装（L1 - AiRuleService）
+  - [ ] 在 `server/services/ai/ruleService.ts` 中封装：
+    - 对现有 `checkReservationRules`、`getAlternativeTimeSlots` 做轻量封装，形成 `getCandidateTimeSlots` 等方法
+    - 统一返回结构（包含错误码，如 `TIME_CONFLICT` / `MAX_PER_DAY_EXCEEDED` 等）
+  - [ ] 确认现有预约流程复用 L1 能力后行为不变
+
+- Step 2.2 评分引擎实现（L2 - AiScoreService）
+  - [ ] 在 `server/services/ai/scoreService.ts` 中实现：
+    - `normalize(value, min, max)` 工具函数
+    - `scoreTimeSlot(slot, userContext, config)`：
+      - 从 `ai_configs` 读取权重
+      - 计算角色权重、习惯匹配度、违约惩罚、实验室利用率、均衡度等特征
+      - 对各特征做归一化，避免数值范围不一致导致权重失衡
+      - 返回 `{ score, breakdown }`，其中 `breakdown` 为后续 L3 解释准备数据
+  - [ ] 为不同角色/违约程度编写若干单元测试：确保“教授 > 普通学生”“高违约 < 低违约”等直觉结果成立
+
+- Step 2.3 聚合统计任务（User Stats Job）
+  - [ ] 在 `server/jobs/userStats.ts` 或 `scripts/aggregate-user-stats.mjs` 中实现 `aggregateUserStats(userId)`：
+    - 查询用户过去 N 个月预约记录
+    - 统计常用 `dayOfWeek + hour` 组合、计算 no_show_rate
+    - 写入/更新 `user_stats` 表
+  - [ ] 支持批量模式：`aggregateUserStatsForAllUsers()`，便于定时任务运行
+
+**阶段三：API 接口开发（tRPC Layer）**
+
+- Step 3.1 智能时间推荐接口
+  - [ ] 在 [server/routers.ts](server/routers.ts) 中新增 `ai` 路由（或独立 `aiRouter`）：
+    - `ai.recommendTimeSlots(input)`：
+      - 调用 L1：`getCandidateTimeSlots` 获取候选时间段
+      - 调用 L2：`scoreTimeSlot` 为每个候选打分
+      - 按分数降序排序，取 Top 3
+      - 写入 `ai_recommendation_logs`
+      - 暂不调用 LLM，直接返回结构化结果 `{ slots: [{ start, end, confidence, breakdown }...] }`
+
+- Step 3.2 实验伙伴匹配接口
+  - [ ] 在 `ai` 路由中新增 `ai.recommendPartners(input)`：
+    - 输入：`date`, `timeSlot`, `labId`
+    - 逻辑：
+      - 查询该时段该实验室的其他预约用户
+      - 基于 `user_tags` 计算相似度（例如 Jaccard 相似度）
+      - 做脱敏处理（隐藏真实姓名/联系方式，仅返回角色、专业、标签、匹配度等）
+    - 输出：按匹配度排序的候选人列表
+
+**阶段四：前端集成（Client Integration）**
+
+- Step 4.1 推荐组件开发
+  - [ ] 在 [client/src/hooks](client/src/hooks) 下实现 `useAiRecommendations`：统一封装 `ai.recommendTimeSlots` / `ai.recommendPartners` 调用
+  - [ ] 在 [client/src/pages/LabRoomList.tsx](client/src/pages/LabRoomList.tsx) 与 [client/src/pages/CalendarDashboard.tsx](client/src/pages/CalendarDashboard.tsx) 集成：
+    - 开发 `AiRecommendationCard` 组件：展示 Top 3 时间、推荐指数（星级/百分比）
+    - 支持点击推荐时间，一键回填预约表单并重新触发规则检查
+
+- Step 4.2 标签补全引导
+  - [ ] 在首页或个人中心（如 Dashboard / Profile 页）检查 `user_tags.onboarding_completed`
+  - [ ] 若为 false，则弹出引导 Modal：提示用户选择专业、研究方向和技能标签
+  - [ ] 填写完成后更新 `user_tags` 并置 `onboarding_completed = true`
+
+**阶段五：L3 大模型增强（LLM Integration）**
+
+- Step 5.1 LLM 服务封装
+  - [ ] 在 `server/services/ai/explainService.ts` 中封装基于 [server/_core/llm.ts](server/_core/llm.ts)、[server/_core/xfspark.ts](server/_core/xfspark.ts) 的统一调用
+  - [ ] 设计 Prompt 模板：把 L2 的 `breakdown`（如“习惯匹配高 / 实验室空闲高 / 紧迫度高”）转为自然语言解释
+  - [ ] 实现 `generateExplanation(context)`，支持时间推荐、实验方案、伙伴匹配三种场景
+
+- Step 5.2 异步加载解释
+  - [ ] 在 `ai` 路由中新增 `ai.getExplanation(input)`：输入为推荐结果摘要 + 评分 `breakdown`
+  - [ ] 前端在推荐列表渲染后，对 Top 1 或用户 hover/点击的项发起解释请求
+  - [ ] UI 状态：先展示推荐列表，再显示“AI 正在生成理由...” 占位，完成后替换为解释文案
+
+**阶段六：演示准备与优化（Polish & Demo）**
+
+- Step 6.1 演示模式配置
+  - [ ] 在 `ai_configs` 中插入一条 `DEMO_MODE` 配置：例如极高的违约惩罚权重或研究生优先级
+  - [ ] 后台或环境变量提供简单开关，可在“生产配置 / DEMO 配置”之间切换
+
+- Step 6.2 审计日志看板
+  - [ ] 在管理员后台新增“AI 调用日志”页面（可复用 [client/src/pages/AuditLog.tsx](client/src/pages/AuditLog.tsx) 的表格样式）：
+    - 显示：调用时间、用户、调用类型（时间推荐/伙伴匹配/方案推荐）、Top-N 推荐结果摘要、是否被采纳
+  - [ ] 支持按时间范围、功能类型、用户进行筛选，辅助比赛展示“AI 在实际工作的证据”
+
 ---
 
 ## Phase 4 🔮 签到与定位对账（📋 规划中）

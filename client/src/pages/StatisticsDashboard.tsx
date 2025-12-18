@@ -156,6 +156,7 @@ export default function StatisticsDashboard() {
       rejected: '已拒绝',
       cancelled: '已取消',
       completed: '已完成',
+      violated: '违约'
     };
     return statusMap[status] || status;
   }

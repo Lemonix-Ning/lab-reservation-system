@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { ChevronLeft, ChevronRight, Clock, MapPin } from 'lucide-react';
+import { AlertTriangle, ChevronLeft, ChevronRight, Clock, MapPin } from 'lucide-react';
 import { format, addDays, startOfMonth, endOfMonth, eachDayOfInterval, startOfWeek, endOfWeek, isSameMonth, isSameDay } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
 
@@ -327,10 +327,10 @@ function MonthView({
                             className={`text-xs p-1 rounded border cursor-pointer hover:shadow-md touch-manipulation ${getStatusColor(
                               event.status
                             )} ${hasConflict ? 'ring-2 ring-red-500 ring-offset-1' : ''}`}
-                            title={hasConflict ? '⚠️ 存在时间冲突' : ''}
+                            title={hasConflict ? '存在时间冲突' : ''}
                           >
                             <div className="flex items-center gap-1">
-                              {hasConflict && <span className="text-red-600">⚠️</span>}
+                              {hasConflict && <AlertTriangle className="h-3.5 w-3.5 text-red-600" />}
                               <div className="truncate font-medium flex-1">{event.title}</div>
                             </div>
                             <div className="text-xs opacity-75">
@@ -490,10 +490,10 @@ function WeekView({
                           className={`p-1 rounded border text-xs cursor-pointer hover:shadow-md ${getStatusColor(
                             event.status
                           )} ${hasConflict ? 'ring-2 ring-red-500 ring-offset-1' : ''}`}
-                          title={hasConflict ? '⚠️ 存在时间冲突' : ''}
+                          title={hasConflict ? '存在时间冲突' : ''}
                         >
                           <div className="flex items-center gap-1">
-                            {hasConflict && <span className="text-red-600 text-base">⚠️</span>}
+                            {hasConflict && <AlertTriangle className="h-4 w-4 text-red-600" />}
                             <div className="truncate font-medium flex-1">{event.title}</div>
                           </div>
                           <div className="flex items-center gap-1 text-xs opacity-75">
@@ -600,7 +600,10 @@ function DayView({
       {isTodayBlocked && !loading && (
         <div className="mb-4 p-3 bg-gray-200 border border-gray-300 rounded-lg">
           <div className="flex items-center gap-2 text-sm text-gray-700">
-            <span className="font-semibold">⚠️ 维护期/禁用时段</span>
+            <span className="font-semibold flex items-center gap-1">
+              <AlertTriangle className="h-4 w-4 text-amber-600" />
+              维护期/禁用时段
+            </span>
             <span className="text-xs">
               {blockedPeriods
                 .filter(bp => {
@@ -654,10 +657,10 @@ function DayView({
                           className={`p-2 rounded border text-xs cursor-pointer hover:shadow-md ${getStatusColor(
                             event.status
                           )} ${hasConflict ? 'ring-2 ring-red-500 ring-offset-1' : ''}`}
-                          title={hasConflict ? '⚠️ 存在时间冲突' : ''}
+                          title={hasConflict ? '存在时间冲突' : ''}
                         >
                           <div className="flex items-center gap-1">
-                            {hasConflict && <span className="text-red-600 text-base">⚠️</span>}
+                            {hasConflict && <AlertTriangle className="h-4 w-4 text-red-600" />}
                             <div className="font-medium flex-1">{event.title}</div>
                           </div>
                           <div className="flex items-center gap-1 text-xs opacity-75">

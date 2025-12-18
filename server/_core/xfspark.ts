@@ -60,10 +60,10 @@ class XFSparkService {
     this.model = (process.env.XFYUN_MODEL as SparkModel) || "lite";
 
     if (!this.apiPassword) {
-      console.warn("[XFSpark] ⚠️ XFYUN_API_PASSWORD 未配置，将使用 Mock 模式");
+      console.warn("[XFSpark] [WARN] XFYUN_API_PASSWORD 未配置，将使用 Mock 模式");
       this.isMock = true;
     } else {
-      console.log(`[XFSpark] ✅ 已配置 HTTP 客户端，模型: ${this.model}`);
+      console.log(`[XFSpark] [OK] 已配置 HTTP 客户端，模型: ${this.model}`);
     }
   }
 
@@ -82,7 +82,7 @@ class XFSparkService {
     const cached = this.cache.get(key);
     
     if (cached && Date.now() - cached.timestamp < this.CACHE_TTL) {
-      console.log(`[XFSpark] 📦 缓存命中`);
+      console.log(`[XFSpark] [CACHE] 缓存命中`);
       return cached.text;
     }
     
@@ -135,7 +135,7 @@ class XFSparkService {
           errorMessage = errorText;
         }
         
-        console.error(`[XFSpark] ❌ API 错误: ${errorMessage}`);
+        console.error(`[XFSpark] [ERROR] API 错误: ${errorMessage}`);
         
         // 特定错误处理
         if (response.status === 401) {
@@ -159,13 +159,15 @@ class XFSparkService {
         throw new Error("API 返回内容为空");
       }
 
-      console.log(`[XFSpark] ✅ 响应成功，tokens: ${data.usage?.total_tokens || "N/A"}`);
+      console.log(`[XFSpark] [OK] 响应成功，tokens: ${data.usage?.total_tokens || "N/A"}`);
       return content;
     } catch (error) {
       if (error instanceof Error) {
-        throw error;
+        console.error("[XFSpark] [ERROR] 请求失败:", error.message);
+      } else {
+        console.error("[XFSpark] [ERROR] 请求失败:", error);
       }
-      throw new Error(`未知错误: ${String(error)}`);
+      throw error;
     }
   }
 
@@ -244,7 +246,7 @@ class XFSparkService {
     }
     
     if (messages[0]?.content?.includes("管理洞察")) {
-      return `## 📊 实验室预约洞察报告
+      return `## 实验室预约洞察报告
 
 ### 关键发现
 - 预约量整体平稳，待审核数量适中

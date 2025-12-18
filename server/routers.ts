@@ -616,6 +616,21 @@ export const appRouter = router({
         );
         return result;
       }),
+
+    // 获取冲突预约详情（用于前端显示冲突列表）
+    getConflictingReservations: protectedProcedure
+      .input(z.object({
+        labId: z.number(),
+        startTime: z.date(),
+        endTime: z.date(),
+      }))
+      .query(async ({ input }) => {
+        return await db.getConflictingReservationDetails(
+          input.labId,
+          input.startTime,
+          input.endTime
+        );
+      }),
     
     update: labAdminProcedure
       .input(z.object({

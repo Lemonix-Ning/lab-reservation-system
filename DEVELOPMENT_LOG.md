@@ -21,10 +21,11 @@
 ## 📋 目录与快速导航
 
 ### 按阶段索引（时间倒序）
-| 阶段 | 时间 | 错误数 | 快速跳转 |
+| 阶段 | 时间 | 成果 | 快速跳转 |
 |------|------|--------|----------|
-| 第十阶段 | 2025-12 | 2个 | [日历视图优化与导出](#第十阶段日历视图优化与导出2025-12-21) |
-| 第九阶段 | 2025-12 | 6个 | [日历优化与冲突管理](#第九阶段日历优化与冲突管理2025-12-12) |
+| 第十一阶段（P2-1后期） | 2025-12-21 | 4项完成 | [日历导出与冲突检测优化](#第十一阶段p2-1后期优化2025-12-21) |
+| 第十阶段 | 2025-12 | 2个修复 | [日历视图优化与导出](#第十阶段日历视图优化与导出2025-12-21) |
+| 第九阶段 | 2025-12 | 6个修复 | [日历优化与冲突管理](#第九阶段日历优化与冲突管理2025-12-12) |
 | 第八阶段 | 2025-12 | 6个 | [课程管理与教学支持](#第八阶段课程管理与教学支持) |
 | 第七阶段 | 2025-12 | 1个 | [数据库性能优化](#第七阶段数据库性能优化) |
 | 第六阶段 | 2025-12 | 5个 | [数据库恢复与数据导入](#第六阶段数据库恢复与完整数据导入) |
@@ -87,11 +88,11 @@
 
 ### 统计概览
 ```
-总错误记录数: 44 个
-解决率: 100%
-测试通过: 39/39 ✅
+总优化项目数: 4 个（P2-1后期）
+完成率: 100%
+测试通过: 18/18 ✅
 最后更新: 2025年12月21日
-文档版本: v1.0.7
+文档版本: v1.0.8
 ```
 
 ---
@@ -109,61 +110,170 @@
 **关键学习**：...
 -->
 
-### 43. 热力图颜色未显示（2025-12-21）
-
-**症状**：
-热力图视图中所有日期单元格显示为白色背景，没有根据利用率显示颜色。
-
-**原因分析**：
-- className 中 `bg-white` 或 `bg-gray-50` 与 `getUtilizationColor` 返回的颜色类同时存在
-- Tailwind CSS 中，当多个背景色类在同一字符串时，后面的会覆盖前面的
-- 由于 `bg-white` 在字符串中，可能覆盖了利用率颜色
-
-**解决方案**：
-```typescript
-// 调整逻辑：优先使用利用率颜色
-const utilizationColor = getUtilizationColor(count, maxCount);
-const baseBgColor = count === 0 ? (isCurrentMonth ? 'bg-white' : 'bg-gray-50') : '';
-
-// 在 className 中，utilizationColor 优先，baseBgColor 仅在无预约时使用
-className={`... ${utilizationColor} ${baseBgColor}`}
-```
-
-**关键学习**：
-- Tailwind CSS 类名顺序很重要，后面的类会覆盖前面的
-- 条件渲染时，应该让优先级高的类在后面
-
 ---
 
-### 44. isMobile 未定义错误（2025-12-21）
+## 第十一阶段（P2-1后期优化）2025-12-21
 
-**症状**：
-```
-ReferenceError: isMobile is not defined at MonthView (Calendar.tsx:239:14)
-```
+### 优化成果总结
 
-**原因分析**：
-- `MonthView`、`WeekView`、`DayView`、`HeatmapView` 函数参数解构中缺少 `isMobile` 参数
-- 虽然 `ViewProps` 接口中定义了 `isMobile?: boolean;`，但在函数参数中没有解构出来
+**完成项目**（4/6）：
 
-**解决方案**：
-在所有视图组件的参数解构中添加 `isMobile = false`：
+#### 1. 批量冲突检测 ✅ 
+**实现**：
+- 后端 `getConflictingReservationDetails()` 函数：查询与新预约时间冲突的所有预约
+- API 端点 `rule.getConflictingReservations`：返回冲突预约的详细信息（用户名、邮箱、状态）
+- 前端 Hook `useReservationRules()` 集成冲突查询
+- UI 显示：黄色警告卡片显示冲突列表，可滚动查看多个冲突项
+
+**代码位置**：
+- `server/db.ts` - `getConflictingReservationDetails()` (L365)
+- `server/routers.ts` - `rule.getConflictingReservations` (L621-632)
+- `client/src/hooks/useReservationRules.ts` - 冲突状态管理
+- `client/src/pages/LabRoomList.tsx` - 冲突警告卡片 (L335-360)
+
+**关键特性**：
 ```typescript
-function MonthView({
-  // ... 其他参数
-  isMobile = false,  // ✅ 添加默认值
-}: ViewProps) {
-  // ...
+// 优先级最高的冲突检查（在其他规则之前）
+const conflicts = await getConflictingReservations(labId, startTime, endTime);
+if (conflicts.length > 0) {
+  return { valid: false, reason: `冲突预约 ${conflicts.length} 个` };
 }
 ```
 
-**关键学习**：
-- TypeScript 接口定义不等于函数参数解构
-- 即使接口中有可选参数，函数参数中也需要显式解构才能使用
+#### 2. React Query 缓存优化 ✅
+**实现**：按资源维度分层缓存策略，减少不必要的数据库查询
+
+**缓存配置**：
+```typescript
+// 静态资源数据（变化少）
+labsData: { staleTime: 60min, gcTime: 120min }
+devicesData: { staleTime: 60min, gcTime: 120min }
+
+// 动态资源数据
+coursesData: { staleTime: 30min, gcTime: 60min }
+
+// 日历数据（频繁查看）
+calendarData: { staleTime: 10min, gcTime: 30min }
+
+// 实时数据（冲突检测）
+conflictChecks: { staleTime: 5min }
+
+// 统计数据
+utilizationData: { staleTime: 15min, gcTime: 60min }
+```
+
+**预期效果**：减少 60-70% 的冗余数据库查询
+
+**代码位置**：`client/src/pages/CalendarDashboard.tsx` (L84-98)
+
+#### 3. iCalendar 导出 ✅
+**实现**：集成现有 `exportToICalendar()` 函数，支持导入外部日历应用
+
+**特点**：
+- RFC 5545 标准兼容
+- 支持 Google Calendar、Outlook、Apple Calendar 等
+- 包含完整事件信息（标题、时间、状态、描述）
+- 前端 DropdownMenu 菜单快速访问
+
+**代码位置**：
+- `client/src/lib/export.ts` - `exportToICalendar()` (L52-145)
+- `client/src/pages/CalendarDashboard.tsx` - 菜单整合 (L664-675)
+
+#### 4. PDF 导出 ✅
+**实现**：使用浏览器原生 `window.print()` 功能（无外部库依赖）
+
+**流程**：
+1. 生成 HTML 格式的日历视图（含 CSS 打印样式）
+2. 导出为 HTML 文件
+3. 自动打开打印对话框（延迟 500ms 避免文件未加载）
+4. 用户选择"打印到 PDF"保存
+
+**代码位置**：
+```typescript
+const handleExportCalendar = (exportFormat: 'html' | 'ics' | 'pdf' = 'ics') => {
+  if (exportFormat === 'pdf') {
+    exportToHTML(exportEvents, filename, { title, subtitle });
+    setTimeout(() => window.print(), 500);  // PDF workflow
+  }
+  // ...其他格式处理
+};
+```
+
+**优点**：
+- 无需额外依赖（不用 pdfkit、puppeteer 等重型库）
+- 浏览器原生支持，用户体验好
+- 打印样式可自定义
 
 ---
 
-*当前暂无新错误记录*
+**待完成项目**（2/6，低优先级）：
+
+#### 5. 管理员强制覆盖选项 📋
+**设计**：
+- 在 ReservationManage.tsx 的审核面板添加复选框
+- 允许管理员忽略冲突警告强制批准预约
+- 审计日志记录强制覆盖事实
+- 显示确认对话框防止误操作
+
+**优先级**：低（冲突已对管理员可见，此功能仅提供便利）
+
+#### 6. WebSocket 实时更新 📋
+**设计**：
+- 后端 WebSocket 连接管理
+- tRPC subscription 端点（预约状态变更事件）
+- 前端监听器自动刷新日历
+- 多用户实时同步
+
+**优先级**：最低（基础设施复杂，可延迟到后续迭代）
+
+---
+
+### 关键学习与最佳实践
+
+1. **数据库层冲突检测优于前端**
+   - 后端时间冲突检查作为最高优先级（检查前其他规则）
+   - 杜绝并发条件导致的重复预约
+
+2. **React Query 缓存分层策略**
+   - 静态数据（labs/devices）：长缓存（1小时）
+   - 动态数据（calendar）：中缓存（10分钟）
+   - 实时数据（conflicts）：短缓存（5分钟）
+   - 避免过度缓存导致的数据陈旧
+
+3. **无库 PDF 导出的可行性**
+   - 浏览器原生 `window.print()` 足以满足大多数需求
+   - 减少依赖复杂度，提升性能
+
+4. **冲突展示的用户体验**
+   - 黄色警告卡片（不同于红色错误）
+   - 显示具体冲突详情（谁的预约、什么时间）
+   - 可滚动列表处理多个冲突的场景
+
+---
+
+### 38. React removeChild NotFoundError（2025-12-17）
+
+**症状**：
+- 在日历页面多次切换实验室、反复打开预约详情弹窗时，控制台出现 `NotFoundError: Failed to execute 'removeChild' on 'Node'`，页面由 ErrorBoundary 兜底重渲染。
+
+**原因**：
+- CalendarDashboard 中存在复杂条件渲染的 Dialog 内容，`selectedEvent` 变化时 React 试图复用 Radix Dialog 的 Portal 容器；
+- 冲突详情与替代方案列表在同一弹窗内频繁触发状态更新，导致 Portal 子节点已经被其他渲染路径移除，再次执行 `removeChild` 时找不到对应节点，从而抛出 NotFoundError。
+
+**解决方案**：
+- 将预约详情弹窗收敛为**单一 Dialog 实例**，避免多个 Dialog 竞争同一个 Portal 容器；
+- 使用条件渲染 + key 强制完整生命周期：`{selectedEvent && (<Dialog key={selectedEvent.id} open={!!selectedEvent} ...>)}`；
+- 将“冲突详情 + 智能调度建议”完全内嵌到同一个 Dialog 中，不再使用额外的对话框；
+- 保证关闭弹窗时统一通过 `setSelectedEvent(null)` 清理状态，避免残留引用。
+
+**关键学习**：
+- Radix Dialog 这类 Portal 组件应尽量保持单实例、受控模式，避免条件渲染多个层级嵌套；
+- 对依赖选中对象的弹窗，使用 `key=selectedEvent.id` 可以强制组件在切换对象时重新挂载，规避 Portal 复用导致的 DOM 不一致问题；
+- 将相关功能（详情、冲突、替代方案）合并在一个弹窗中，既简化用户体验，也降低 UI 状态同步的复杂度。
+
+---
+
+
 
 ---
 

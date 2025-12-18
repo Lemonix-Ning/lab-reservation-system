@@ -98,6 +98,44 @@ Vue/Element 实现建议：
 
 已拒绝：bg-red-100 + text-red-800 + border-red-200
 
+3.3.1 图标规范 (Icons)
+
+统一使用 `lucide-react` 图标组件，配合 Tailwind 控制大小与颜色。
+
+禁止在 UI 中直接使用 Emoji 作为图标（不同系统渲染差异大、风格不统一）。
+
+尺寸 (Size)：
+
+默认列表/按钮内图标：h-4 w-4 或 h-5 w-5
+
+强调图标/列表主图标：h-6 w-6
+
+语义颜色 (Semantic Colors)：
+
+Success：text-green-600（通过/成功）
+
+Warning：text-amber-600（提醒/注意）
+
+Danger：text-red-600（拒绝/错误/冲突）
+
+Info：text-blue-600（系统通知/提示）
+
+Neutral：text-slate-600 / text-gray-600（默认/未知）
+
+通知图标映射建议 (Notification Icons)：
+
+reservation_approved：CircleCheck（text-green-600）
+
+reservation_rejected：CircleX（text-red-600）
+
+reservation_cancelled：Ban（text-gray-600）
+
+reservation_reminder：AlarmClock（text-amber-600）
+
+system：Megaphone（text-blue-600）
+
+default：Mail（text-slate-600）
+
 3.4 按钮 (Buttons)
 
 主按钮 (Primary)：蓝/紫背景 + 白字。Hover 时加深颜色。

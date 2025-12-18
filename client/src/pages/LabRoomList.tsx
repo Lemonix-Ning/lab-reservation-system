@@ -8,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { getLoginUrl } from "@/const";
 import { trpc } from "@/lib/trpc";
 import { useReservationRules } from "@/hooks/useReservationRules";
-import { FlaskConical, MapPin, Users, AlertCircle, CheckCircle, Clock } from "lucide-react";
+import { FlaskConical, MapPin, Users, AlertCircle, CheckCircle, Clock, Lightbulb } from "lucide-react";
 import { useState, useEffect, useCallback } from "react";
 import { toast } from "sonner";
 import { Link } from "wouter";
@@ -65,7 +65,7 @@ export default function LabRoomList() {
   });
   const [basicValidationError, setBasicValidationError] = useState<string | null>(null);
 
-  const { checkReservation, errorMessage, isChecking, formatRuleDescription } = useReservationRules();
+  const { checkReservation, errorMessage, isChecking, formatRuleDescription, conflictingReservations } = useReservationRules();
 
   const { data: labs, isLoading } = trpc.labRoom.list.useQuery();
   const utils = trpc.useUtils();
@@ -319,10 +319,40 @@ export default function LabRoomList() {
             {!basicValidationError && errorMessage && (
               <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-start gap-2">
                 <AlertCircle className="h-4 w-4 text-red-600 mt-0.5 flex-shrink-0" />
-                <div className="text-sm text-red-800">
+                <div className="text-sm text-red-800 flex-1">
                   <p className="font-semibold">规则检查：</p>
                   <p>{errorMessage}</p>
                 </div>
+              </div>
+            )}
+
+            {/* 冲突预约列表 */}
+            {!basicValidationError && conflictingReservations.length > 0 && (
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 space-y-2">
+                <div className="flex items-center gap-2">
+                  <AlertCircle className="h-4 w-4 text-yellow-600 flex-shrink-0" />
+                  <p className="font-semibold text-yellow-800">
+                    发现 {conflictingReservations.length} 个冲突预约
+                  </p>
+                </div>
+                <div className="space-y-2 max-h-48 overflow-y-auto">
+                  {conflictingReservations.map((conflict) => (
+                    <div key={conflict.id} className="bg-white rounded p-2 border border-yellow-100 text-xs">
+                      <p className="font-semibold text-gray-800">{conflict.title}</p>
+                      <p className="text-gray-600">
+                        预约人：{conflict.userName} ({conflict.userEmail})
+                      </p>
+                      <p className="text-gray-600">
+                        时间：{new Date(conflict.startTime).toLocaleString('zh-CN')} - {new Date(conflict.endTime).toLocaleString('zh-CN')}
+                      </p>
+                      <p className="text-gray-500">状态：{conflict.status === 'approved' ? '已批准' : '待审核'}</p>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-xs text-yellow-700 mt-2">
+                  <Lightbulb className="h-3.5 w-3.5 text-yellow-700 inline-block mr-1 -mt-0.5" />
+                  提示：您可以在日历页面查看替代时间方案，或调整预约时间避免冲突
+                </p>
               </div>
             )}
           </div>
