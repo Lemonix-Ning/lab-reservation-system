@@ -64,6 +64,7 @@ const menuItems = [
   // 实验室管理员权限
   { icon: Monitor, label: "实验室管理", path: "/admin/labs", roles: ['labAdmin', 'sysAdmin'] },
   { icon: Settings, label: "预约审核", path: "/admin/reservations", roles: ['labAdmin', 'sysAdmin'] },
+  { icon: Monitor, label: "设备管理", path: "/admin/devices", roles: ['labAdmin', 'sysAdmin'] },
   { icon: FileText, label: "规则配置", path: "/admin/rules", roles: ['labAdmin', 'sysAdmin'] },
   { icon: Clock, label: "开放规则", path: "/admin/opening-rules", roles: ['labAdmin', 'sysAdmin'] },
   { icon: Ban, label: "禁用时段", path: "/admin/blocked-periods", roles: ['labAdmin', 'sysAdmin'] },
@@ -224,7 +225,7 @@ function DashboardLayoutContent({
                 <div className="flex items-center gap-2 min-w-0">
                   <FlaskConical className="h-4 w-4 text-blue-600 shrink-0" />
                   <span className="font-semibold tracking-tight truncate text-sm">
-                    实验室预约管理系统
+                    学校实验室预约调度系统
                   </span>
                 </div>
               ) : null}
@@ -348,7 +349,7 @@ function DashboardLayoutContent({
             <div className="flex items-center gap-3">
               <div className="flex flex-col gap-1">
                 <span className="tracking-tight text-foreground font-semibold">
-                  {activeMenuItem?.label ?? "实验室预约管理系统"}
+                  {activeMenuItem?.label ?? "学校实验室预约调度系统"}
                 </span>
               </div>
             </div>

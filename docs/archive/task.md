@@ -526,6 +526,44 @@
     - 显示：调用时间、用户、调用类型（时间推荐/伙伴匹配/方案推荐）、Top-N 推荐结果摘要、是否被采纳
   - [ ] 支持按时间范围、功能类型、用户进行筛选，辅助比赛展示“AI 在实际工作的证据”
 
+- Step 6.3 验收指标（性能 / 可观测性 / 降级）
+  - [ ] `ai.recommendTimeSlots` 返回 `meta` 字段（用于 Demo 展示与排障）：
+    - `requestId`（前后端贯通）
+    - `elapsedMs`（接口耗时，ms）
+    - `candidateCount`（候选数量）
+    - `scoredCount`（参与打分数量）
+    - `configKey` / `configVersion`（当前使用的配置，用于对比 Demo/生产）
+  - [ ] `ai_recommendation_logs`（或 audit_logs 扩展字段）记录最小证据链：
+    - `requestId`、`featureType`、`userId`
+    - `inputDigest`（脱敏摘要：时间窗/时长/labId 等）
+    - `topResultsDigest`（Top3 的 start/end/score/confidence 摘要）
+    - `accepted`（是否采纳）与 `acceptedSlotIndex`（采纳第几条）
+    - `elapsedMs`、`configKey/configVersion`
+  - [ ] LLM 不得阻塞主流程：
+    - 推荐主接口仅返回 L2 结构化结果（含 `breakdown`）
+    - 解释文案通过 `ai.getExplanation` 异步获取（或 hover/click 触发）
+  - [ ] LLM 降级策略（比赛稳定性保障）：
+    - 星火调用失败/超时（建议 2-3s）时，回退为“本地模板解释”（基于 L2 breakdown 拼接 2-3 条要点）
+    - UI 明确提示“当前为简要解释/已降级”，避免误导
+  - [ ] Demo 口径 KPI（以可视化为准，不强制线上真实口径）：
+    - 推荐响应耗时（P95）< 500ms（不含 LLM 解释）
+    - 推荐采纳率 ≥ 60%（演示环境可通过固定脚本操作达成）
+
+- Step 6.4 3-5 分钟演示脚本（含固定数据）
+  - [ ] Demo 前置准备
+    - [ ] 运行/准备固定种子数据：`scripts/seed-ai.mjs`（或扩展现有 seed）
+    - [ ] 确保存在 3 组可复现场景：
+      - 场景 A：同实验室同时间已有占位，必定冲突 → 推荐给出可用时段
+      - 场景 B：用户有违约历史（高 no_show_rate） → 推荐更保守/低风险时段
+      - 场景 C：热门实验室过载（利用率高） → 推荐均衡到更空闲时段或相近资源（如有支持）
+    - [ ] 提供一键重置方式（仅 Demo 环境）：重置并重新 seed，保证每次演示一致
+  - [ ] Demo 主线（建议顺序）
+    - [ ] 1) 进入日历/预约页面，选择一个会冲突的时间窗（触发场景 A）
+    - [ ] 2) 展示“开启 AI 推荐（L2）”的 Top3：包含 `confidence` + 2-3 条结构化理由（或异步解释）
+    - [ ] 3) 一键应用 Top1，完成预约创建/提交审核，页面即时刷新（证明确实可用）
+    - [ ] 4) 切换到“基础规则推荐/关闭 AI”（或切换到“生产配置”），同样输入再对比推荐排序差异（对比点）
+    - [ ] 5) 打开“AI 调用日志”看板，筛选当前用户/时间范围，展示本次调用的证据链（requestId/top3/采纳）
+
 ---
 
 ## Phase 4 🔮 签到与定位对账（📋 规划中）

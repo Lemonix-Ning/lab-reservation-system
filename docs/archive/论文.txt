@@ -6,3 +6,7 @@
 
 
  Stop-Process -Id 38060 -Force
+
+ # 查找占用 4000 端口的进程
+netstat -ano | findstr :4000
+Get-Process | Where-Object { $_.ProcessName -like "*node*" } | Stop-Process -Force

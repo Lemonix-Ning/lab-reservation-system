@@ -17,7 +17,7 @@ export default function Home() {
         {/* Hero Section */}
         <div className="text-center mb-16">
           <h2 className="text-4xl font-bold text-gray-900 mb-4">
-            高校实验室资源预约平台
+            学校实验室预约调度系统
           </h2>
           <p className="text-xl text-gray-600 mb-8">
             规范化管理，智能化调度，让实验室资源利用更高效

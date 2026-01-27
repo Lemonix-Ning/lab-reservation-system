@@ -66,6 +66,8 @@ export const labReservations = mysqlTable("lab_reservations", {
   approveTime: timestamp("approveTime"),
   rescheduledFromId: int("rescheduledFromId"), // 改签来源预约ID
   rescheduleCount: int("rescheduleCount").default(0), // 改签次数计数
+  // deviceId: int("deviceId"), // 设备ID（外键，NULL表示不针对特定设备）- TODO: 待后续支持
+  // courseId: int("courseId"), // 课程ID（外键，NULL表示非课程相关预约）- TODO: 待后续支持
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });

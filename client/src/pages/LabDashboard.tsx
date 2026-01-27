@@ -120,7 +120,7 @@ export default function LabDashboard() {
       {/* 标题区域 */}
       <div className="text-center py-12 px-4">
         <h1 className="text-4xl font-bold text-gray-900">
-          高校实验室资源预约平台
+          学校实验室预约调度系统
         </h1>
         <p className="mt-2 text-gray-600">
           规范化管理、智能化调度，让实验室资源利用更高效

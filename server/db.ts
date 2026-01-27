@@ -1996,6 +1996,14 @@ export async function getReservationsByTimeRange(input: {
       conditions.push(eq(labReservations.labId, input.labId));
     }
 
+    // TODO: 支持 deviceId 和 courseId 筛选（需要先执行数据库迁移）
+    // if (input.deviceId) {
+    //   conditions.push(eq(labReservations.deviceId, input.deviceId));
+    // }
+    // if (input.courseId) {
+    //   conditions.push(eq(labReservations.courseId, input.courseId));
+    // }
+
     if (input.status) {
       conditions.push(eq(labReservations.status, input.status as "pending" | "approved" | "rejected" | "completed" | "cancelled" | "violated"));
     }

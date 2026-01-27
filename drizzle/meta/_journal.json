@@ -8,6 +8,20 @@
       "when": 1765539864935,
       "tag": "0000_light_richard_fisk",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1766116516184,
+      "tag": "0001_handy_hellcat",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1769495996709,
+      "tag": "0002_quiet_impossible_man",
+      "breakpoints": true
     }
   ]
 }

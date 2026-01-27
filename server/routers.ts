@@ -112,7 +112,7 @@ export const appRouter = router({
         return await db.getLabRoomById(input.id);
       }),
     
-    create: adminProcedure
+    create: labAdminProcedure
       .input(z.object({
         roomNo: z.string(),
         name: z.string(),
@@ -131,7 +131,7 @@ export const appRouter = router({
         return { success: true };
       }),
     
-    update: adminProcedure
+    update: labAdminProcedure
       .input(z.object({
         id: z.number(),
         roomNo: z.string().optional(),
@@ -152,7 +152,7 @@ export const appRouter = router({
         return { success: true };
       }),
     
-    delete: adminProcedure
+    delete: labAdminProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
         await db.deleteLabRoom(input.id);
@@ -663,7 +663,7 @@ export const appRouter = router({
         return await db.getDevicesByLabId(input.labId);
       }),
 
-    create: adminProcedure
+    create: labAdminProcedure
       .input(z.object({
         labId: z.number(),
         deviceNo: z.string(),
@@ -678,7 +678,7 @@ export const appRouter = router({
         return { success: true };
       }),
 
-    update: adminProcedure
+    update: labAdminProcedure
       .input(z.object({
         id: z.number(),
         labId: z.number().optional(),
@@ -695,7 +695,7 @@ export const appRouter = router({
         return { success: true };
       }),
 
-    delete: adminProcedure
+    delete: labAdminProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
         await db.deleteDevice(input.id);
@@ -1424,7 +1424,7 @@ export const appRouter = router({
       }),
 
     // 管理员创建或更新开放规则
-    upsert: adminProcedure
+    upsert: labAdminProcedure
       .input(z.object({
         id: z.number().optional(),
         labId: z.number().nullable(),
@@ -1466,7 +1466,7 @@ export const appRouter = router({
   // ============ 禁用时段管理（Phase 4 P1）============
   blockedPeriod: router({
     // 获取禁用时段列表
-    list: adminProcedure
+    list: labAdminProcedure
       .input(z.object({
         labId: z.number().optional(),
         deviceId: z.number().optional(),
@@ -1476,7 +1476,7 @@ export const appRouter = router({
       }),
 
     // 创建禁用时段
-    create: adminProcedure
+    create: labAdminProcedure
       .input(z.object({
         labId: z.number().nullable(),
         deviceId: z.number().nullable(),
@@ -1506,7 +1506,7 @@ export const appRouter = router({
       }),
 
     // 更新禁用时段
-    update: adminProcedure
+    update: labAdminProcedure
       .input(z.object({
         id: z.number(),
         labId: z.number().nullable().optional(),
@@ -1698,11 +1698,25 @@ export const appRouter = router({
         viewType: z.enum(['day', 'week', 'month', 'heatmap']),
       }))
       .query(async ({ input }) => {
-        // 通过 getReservationsByTimeRange 获取设备相关的预约
+        // 获取设备信息及其所在的实验室
+        const device = await db.getDeviceById(input.deviceId);
+        if (!device) {
+          return {
+            events: [],
+            blockedPeriods: [],
+            summary: {
+              totalReservations: 0,
+              approved: 0,
+              pending: 0,
+            },
+          };
+        }
+
+        // 获取该实验室的所有预约（设备筛选功能待后续完整支持，目前显示实验室预约）
         const reservations = await db.getReservationsByTimeRange({
           startDate: input.startDate,
           endDate: input.endDate,
-          deviceId: input.deviceId,
+          labId: device.labId,
         });
         
         return {
@@ -1775,7 +1789,7 @@ export const appRouter = router({
       }),
 
     // 获取所有有冲突的预约（管理员功能）
-    getConflictingReservations: adminProcedure
+    getConflictingReservations: labAdminProcedure
       .input(z.object({
         startDate: z.string().datetime().optional(),
         endDate: z.string().datetime().optional(),

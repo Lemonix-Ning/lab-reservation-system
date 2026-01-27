@@ -10,7 +10,6 @@ import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { 
   AlertCircle, 
-  AlertTriangle,
   TrendingUp, 
   FileText, 
   CheckCircle, 
@@ -26,8 +25,7 @@ import {
   ChevronLeft,
   ChevronRight,
   RefreshCw,
-  Download,
-  Lightbulb
+  Download
 } from 'lucide-react';
 import { format, startOfMonth, endOfMonth, addMonths, subMonths } from 'date-fns';
 import { trpc } from '@/lib/trpc';
@@ -222,6 +220,25 @@ export default function CalendarPage() {
       return overlap;
     });
   };
+
+  // 维度切换时清理无关选择，并在设备/课程维度自动选择第一项（若为空且有数据）
+  useEffect(() => {
+    if (dimension === 'lab') {
+      setSelectedDevice(null);
+      setSelectedCourse(null);
+    } else if (dimension === 'device') {
+      setSelectedLab(null);
+      if (selectedDevice === null && devices.length > 0) {
+        setSelectedDevice(devices[0].id);
+      }
+    } else if (dimension === 'course') {
+      setSelectedLab(null);
+      setSelectedDevice(null);
+      if (selectedCourse === null && courses.length > 0) {
+        setSelectedCourse(courses[0].id);
+      }
+    }
+  }, [dimension, devices, courses]);
 
   // 当获取到冲突建议时，自动更新并显示
   useEffect(() => {
@@ -896,10 +913,7 @@ export default function CalendarPage() {
                           {/* 冲突的预约列表 */}
                           {conflictDetails && conflictDetails.length > 0 && (
                             <div className="space-y-2">
-                              <p className="text-xs font-semibold text-red-800 flex items-center gap-1">
-                                <AlertTriangle className="h-4 w-4 text-red-600" />
-                                冲突的预约（{conflictDetails.length}个）：
-                              </p>
+                              <p className="text-xs font-semibold text-red-800">⚠️ 冲突的预约（{conflictDetails.length}个）：</p>
                               <div className="max-h-48 overflow-y-auto space-y-2">
                                 {conflictDetails.map((conflict: any) => (
                                   <div key={conflict.id} className="bg-white rounded-lg p-2 text-xs border border-red-200">
@@ -923,10 +937,7 @@ export default function CalendarPage() {
                           {alternativeSlots.length > 0 && (
                             <div className="space-y-2">
                               <div className="flex items-center justify-between">
-                                <p className="text-xs font-semibold text-indigo-700 flex items-center gap-1">
-                                  <Lightbulb className="h-4 w-4 text-indigo-600" />
-                                  智能调度建议
-                                </p>
+                                <p className="text-xs font-semibold text-indigo-700">💡 智能调度建议</p>
                                 {suggestionsLoading && <RefreshCw className="h-4 w-4 animate-spin text-indigo-600" />}
                               </div>
                               <div className="max-h-48 overflow-y-auto space-y-2">
