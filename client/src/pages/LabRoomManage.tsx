@@ -1,5 +1,4 @@
 import { useAuth } from "@/_core/hooks/useAuth";
-import { useRole } from "@/contexts/RoleContext";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -9,17 +8,21 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
-import { FlaskConical } from "lucide-react";
-import { useState } from "react";
+import { FlaskConical, Plus } from "lucide-react";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Link, useLocation } from "wouter";
 
 export default function LabRoomManage() {
   const { user } = useAuth();
-  const { isLabAdmin, isSysAdmin } = useRole();
   const [, setLocation] = useLocation();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [buildingFilter, setBuildingFilter] = useState("all");
+  const [typeFilter, setTypeFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | "enabled" | "disabled">("all");
+  const [isAddingNewBuilding, setIsAddingNewBuilding] = useState(false);
+  const [isAddingNewType, setIsAddingNewType] = useState(false);
   const [formData, setFormData] = useState({
     roomNo: "",
     name: "",
@@ -35,6 +38,35 @@ export default function LabRoomManage() {
 
   const { data: labs, isLoading } = trpc.labRoom.list.useQuery();
   const utils = trpc.useUtils();
+
+  const buildingOptions = useMemo(() => {
+    return Array.from(
+      new Set(
+        (labs || [])
+          .map((lab) => lab.building)
+          .filter((value): value is string => Boolean(value))
+      )
+    );
+  }, [labs]);
+
+  const typeOptions = useMemo(() => {
+    return Array.from(
+      new Set(
+        (labs || [])
+          .map((lab) => lab.type)
+          .filter((value): value is string => Boolean(value))
+      )
+    );
+  }, [labs]);
+
+  const filteredLabs = useMemo(() => {
+    return (labs || []).filter((lab) => {
+      if (buildingFilter !== "all" && lab.building !== buildingFilter) return false;
+      if (typeFilter !== "all" && lab.type !== typeFilter) return false;
+      if (statusFilter !== "all" && lab.status !== statusFilter) return false;
+      return true;
+    });
+  }, [labs, buildingFilter, typeFilter, statusFilter]);
 
   const createMutation = trpc.labRoom.create.useMutation({
     onSuccess: () => {
@@ -68,10 +100,7 @@ export default function LabRoomManage() {
     },
   });
 
-  if (!isLabAdmin && !isSysAdmin) {
-    setLocation('/');
-    return null;
-  }
+  // 权限检查由后端API和菜单过滤处理
 
   const handleOpenDialog = (lab?: any) => {
     if (lab) {
@@ -104,6 +133,8 @@ export default function LabRoomManage() {
       });
     }
     setIsDialogOpen(true);
+    setIsAddingNewBuilding(false);
+    setIsAddingNewType(false);
   };
 
   const handleCloseDialog = () => {
@@ -134,6 +165,53 @@ export default function LabRoomManage() {
           <div className="text-center py-12">加载中...</div>
         ) : (
           <Card>
+            <CardContent className="p-4 border-b bg-gray-50/80">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                <div>
+                  <Label className="mb-1 block">按楼宇分类</Label>
+                  <Select value={buildingFilter} onValueChange={setBuildingFilter}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="全部楼宇" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">全部楼宇</SelectItem>
+                      {buildingOptions.map((building) => (
+                        <SelectItem key={building} value={building}>{building}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div>
+                  <Label className="mb-1 block">按类型分类</Label>
+                  <Select value={typeFilter} onValueChange={setTypeFilter}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="全部类型" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">全部类型</SelectItem>
+                      {typeOptions.map((type) => (
+                        <SelectItem key={type} value={type}>{type}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div>
+                  <Label className="mb-1 block">按状态分类</Label>
+                  <Select value={statusFilter} onValueChange={(value: "all" | "enabled" | "disabled") => setStatusFilter(value)}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="全部状态" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">全部状态</SelectItem>
+                      <SelectItem value="enabled">启用</SelectItem>
+                      <SelectItem value="disabled">停用</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </CardContent>
             <CardContent className="p-0">
               <Table>
                 <TableHeader>
@@ -149,7 +227,7 @@ export default function LabRoomManage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {labs?.map((lab) => (
+                  {filteredLabs.map((lab) => (
                     <TableRow key={lab.id}>
                       <TableCell>{lab.roomNo}</TableCell>
                       <TableCell>{lab.name}</TableCell>
@@ -182,6 +260,13 @@ export default function LabRoomManage() {
                       </TableCell>
                     </TableRow>
                   ))}
+                  {filteredLabs.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={8} className="text-center text-gray-500 py-8">
+                        当前分类下暂无实验室，请调整筛选条件
+                      </TableCell>
+                    </TableRow>
+                  )}
                 </TableBody>
               </Table>
             </CardContent>
@@ -206,7 +291,56 @@ export default function LabRoomManage() {
             </div>
             <div>
               <Label>所在楼宇</Label>
-              <Input value={formData.building} onChange={(e) => setFormData({ ...formData, building: e.target.value })} />
+              {!isAddingNewBuilding && buildingOptions.length > 0 ? (
+                <div className="flex gap-1">
+                  <Select
+                    value={formData.building || undefined}
+                    onValueChange={(value) => setFormData({ ...formData, building: value })}
+                  >
+                    <SelectTrigger className="flex-1">
+                      <SelectValue placeholder="选择楼宇" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {buildingOptions.map((building) => (
+                        <SelectItem key={building} value={building}>{building}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    title="添加新楼栋"
+                    onClick={() => {
+                      setIsAddingNewBuilding(true);
+                      setFormData({ ...formData, building: "" });
+                    }}
+                  >
+                    <Plus className="h-4 w-4" />
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex gap-1">
+                  <Input
+                    className="flex-1"
+                    value={formData.building}
+                    onChange={(e) => setFormData({ ...formData, building: e.target.value })}
+                    placeholder="输入新楼栋名称"
+                    autoFocus={isAddingNewBuilding}
+                  />
+                  {buildingOptions.length > 0 && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="shrink-0"
+                      onClick={() => setIsAddingNewBuilding(false)}
+                    >
+                      返回选择
+                    </Button>
+                  )}
+                </div>
+              )}
             </div>
             <div>
               <Label>具体位置</Label>
@@ -218,7 +352,56 @@ export default function LabRoomManage() {
             </div>
             <div>
               <Label>实验室类型</Label>
-              <Input value={formData.type} onChange={(e) => setFormData({ ...formData, type: e.target.value })} placeholder="例如：机房、物理实验室" />
+              {!isAddingNewType && typeOptions.length > 0 ? (
+                <div className="flex gap-1">
+                  <Select
+                    value={formData.type || undefined}
+                    onValueChange={(value) => setFormData({ ...formData, type: value })}
+                  >
+                    <SelectTrigger className="flex-1">
+                      <SelectValue placeholder="选择类型" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {typeOptions.map((type) => (
+                        <SelectItem key={type} value={type}>{type}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    title="添加新类型"
+                    onClick={() => {
+                      setIsAddingNewType(true);
+                      setFormData({ ...formData, type: "" });
+                    }}
+                  >
+                    <Plus className="h-4 w-4" />
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex gap-1">
+                  <Input
+                    className="flex-1"
+                    value={formData.type}
+                    onChange={(e) => setFormData({ ...formData, type: e.target.value })}
+                    placeholder="输入新类型名称"
+                    autoFocus={isAddingNewType}
+                  />
+                  {typeOptions.length > 0 && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="shrink-0"
+                      onClick={() => setIsAddingNewType(false)}
+                    >
+                      返回选择
+                    </Button>
+                  )}
+                </div>
+              )}
             </div>
             <div>
               <Label>开放开始时间</Label>

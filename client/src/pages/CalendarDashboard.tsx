@@ -104,16 +104,18 @@ export default function CalendarPage() {
     selectedEvent ? { reservationId: selectedEvent.id } : skipToken
   );
 
+  const [shouldFetchSuggestions, setShouldFetchSuggestions] = useState(false);
+
   // 获取冲突建议（当选中的事件有冲突时）
   const { data: conflictSuggestions, isLoading: suggestionsLoading, refetch: refetchSuggestions } = trpc.calendar.getConflictSuggestions.useQuery(
+    selectedEvent && reservationDetails ? {
+      labId: reservationDetails.labId ?? 0,
+      startTime: reservationDetails.startTime ? new Date(reservationDetails.startTime).toISOString() : new Date().toISOString(),
+      endTime: reservationDetails.endTime ? new Date(reservationDetails.endTime).toISOString() : new Date().toISOString(),
+      excludeReservationId: selectedEvent.id ?? 0,
+    } : skipToken,
     {
-      labId: reservationDetails?.labId ?? 0,
-      startTime: reservationDetails?.startTime ? new Date(reservationDetails.startTime).toISOString() : new Date().toISOString(),
-      endTime: reservationDetails?.endTime ? new Date(reservationDetails.endTime).toISOString() : new Date().toISOString(),
-      excludeReservationId: selectedEvent?.id ?? 0,
-    },
-    {
-      enabled: false, // 默认禁用，手动触发
+      enabled: shouldFetchSuggestions && !!selectedEvent && !!reservationDetails,
     }
   );
 
@@ -302,12 +304,13 @@ export default function CalendarPage() {
 
   const handleEventClick = (event: CalendarEvent) => {
     setSelectedEvent(event);
+    setShouldFetchSuggestions(false); // 重置建议获取状态
   };
 
   const handleConflictCheck = async () => {
-    // 刷新替代方案列表（无需打开新 Dialog）
+    // 触发获取替代方案
     if (reservationDetails) {
-      await refetchSuggestions();
+      setShouldFetchSuggestions(true);
     }
   };
 

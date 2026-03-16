@@ -11,6 +11,7 @@ import {
   Gavel,
   History,
   Info,
+  Plus,
 } from "lucide-react";
 import { format } from "date-fns";
 import { zhCN } from "date-fns/locale";
@@ -18,6 +19,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -29,9 +32,12 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { cn } from "@/lib/utils";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
@@ -39,6 +45,8 @@ import { toast } from "sonner";
 const violationTypeMap: Record<string, { label: string; icon: ElementType; color: string; bg: string }> = {
   no_show: { label: "未签到", icon: UserX, color: "text-rose-600", bg: "bg-rose-50" },
   late_cancel: { label: "迟到取消", icon: Clock, color: "text-amber-600", bg: "bg-amber-50" },
+  timeout_checkout: { label: "超时占用", icon: History, color: "text-orange-600", bg: "bg-orange-50" },
+  manual_record: { label: "手动记录", icon: Gavel, color: "text-slate-600", bg: "bg-slate-50" },
   damage: { label: "设备损坏", icon: ShieldAlert, color: "text-purple-600", bg: "bg-purple-50" },
   other: { label: "违反规则", icon: Ban, color: "text-slate-600", bg: "bg-slate-50" },
 };
@@ -53,10 +61,20 @@ export default function ViolationManagePage() {
   const [selectedClassId, setSelectedClassId] = useState<string>("all");
   const [selectedBlacklist, setSelectedBlacklist] = useState<any>(null);
   const [isRemoveDialogOpen, setIsRemoveDialogOpen] = useState(false);
+  const [isRecordDialogOpen, setIsRecordDialogOpen] = useState(false);
+  const [userPickerOpen, setUserPickerOpen] = useState(false);
+  const [recordForm, setRecordForm] = useState({
+    userId: "",
+    userName: "",
+    violationType: "no_show" as "no_show" | "late_cancel" | "timeout_checkout" | "manual_record",
+    points: 5,
+    description: "",
+  });
 
   const { data: violations = [], refetch: refetchViolations } = trpc.violation.getAllRecords.useQuery();
   const { data: blacklistData = [], refetch: refetchBlacklist } = trpc.violation.getAllBlacklist.useQuery();
   const { data: classList = [] } = trpc.class.list.useQuery();
+  const { data: allUsers = [] } = trpc.user.getAll.useQuery();
 
   const removeBlacklist = trpc.violation.removeBlacklist.useMutation({
     onSuccess: () => {
@@ -67,6 +85,38 @@ export default function ViolationManagePage() {
     },
     onError: (error) => toast.error(error.message),
   });
+
+  const recordViolation = trpc.violation.recordViolation.useMutation({
+    onSuccess: () => {
+      toast.success("违约记录已添加");
+      refetchViolations();
+      refetchBlacklist();
+      setIsRecordDialogOpen(false);
+      setRecordForm({ userId: "", userName: "", violationType: "no_show", points: 5, description: "" });
+    },
+    onError: (error) => toast.error(error.message),
+  });
+
+  const handleRecordViolation = () => {
+    const userId = parseInt(recordForm.userId);
+    if (!userId) { toast.error("请选择用户"); return; }
+    recordViolation.mutate({
+      userId,
+      violationType: recordForm.violationType,
+      points: recordForm.points,
+      description: recordForm.description || undefined,
+    });
+  };
+
+  // 违约类型默认扣分
+  const typePointsMap: Record<string, number> = { no_show: 5, late_cancel: 2, timeout_checkout: 3, manual_record: 1 };
+  const handleTypeChange = (type: string) => {
+    setRecordForm(prev => ({
+      ...prev,
+      violationType: type as any,
+      points: typePointsMap[type] ?? 1,
+    }));
+  };
 
   const filteredViolations = useMemo(() => {
     let list = violations;
@@ -98,11 +148,16 @@ export default function ViolationManagePage() {
 
   return (
     <div className="min-h-screen bg-slate-50/50 p-6 space-y-8 font-sans text-slate-900">
-      <div className="flex flex-col gap-2">
-        <h1 className="text-2xl font-bold tracking-tight text-slate-900 flex items-center gap-2">
-          <Gavel className="h-6 w-6 text-rose-600" /> 违约与黑名单管理
-        </h1>
-        <p className="text-slate-500 text-sm">维护实验室秩序，管理违规记录及用户处罚状态。</p>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 flex items-center gap-2">
+            <Gavel className="h-6 w-6 text-rose-600" /> 违约与黑名单管理
+          </h1>
+          <p className="text-slate-500 text-sm">维护实验室秩序，管理违规记录及用户处罚状态。</p>
+        </div>
+        <Button onClick={() => setIsRecordDialogOpen(true)} className="bg-rose-600 hover:bg-rose-700 text-white gap-1.5 shrink-0">
+          <Plus className="h-4 w-4" /> 记录违约
+        </Button>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -374,6 +429,103 @@ export default function ViolationManagePage() {
               {removeBlacklist.isPending ? "处理中..." : "确认解除"}
             </Button>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* 记录违约对话框 */}
+      <Dialog open={isRecordDialogOpen} onOpenChange={setIsRecordDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-bold flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-rose-500" /> 记录违约
+            </DialogTitle>
+            <DialogDescription>为指定学生记录违约行为，累计违约分达到10分将自动加入黑名单。</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 pt-2">
+            <div className="space-y-2">
+              <Label>违约用户</Label>
+              <Popover open={userPickerOpen} onOpenChange={setUserPickerOpen}>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className="w-full justify-between font-normal h-9">
+                    {recordForm.userName || <span className="text-muted-foreground">搜索姓名或ID...</span>}
+                    <Search className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                  <Command>
+                    <CommandInput placeholder="输入姓名或学号..." />
+                    <CommandList>
+                      <CommandEmpty>未找到匹配用户</CommandEmpty>
+                      <CommandGroup className="max-h-48 overflow-auto">
+                        {allUsers.filter((u: any) => u.role === 'student').map((u: any) => (
+                          <CommandItem
+                            key={u.id}
+                            value={`${u.name || ''} ${u.openId || ''} ${u.id}`}
+                            onSelect={() => {
+                              setRecordForm(prev => ({ ...prev, userId: `${u.id}`, userName: `${u.name || u.openId} (ID: ${u.id})` }));
+                              setUserPickerOpen(false);
+                            }}
+                            className="cursor-pointer"
+                          >
+                            <div className="flex items-center gap-2">
+                              <div className="h-6 w-6 rounded-full bg-slate-100 flex items-center justify-center text-xs font-bold text-slate-600">
+                                {(u.name || '?')[0]}
+                              </div>
+                              <div>
+                                <span className="font-medium">{u.name || u.openId}</span>
+                                <span className="text-xs text-muted-foreground ml-2">ID: {u.id}</span>
+                              </div>
+                            </div>
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+            </div>
+            <div className="space-y-2">
+              <Label>违约类型</Label>
+              <Select value={recordForm.violationType} onValueChange={handleTypeChange}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="no_show">未签到 (默认 -5 分)</SelectItem>
+                  <SelectItem value="late_cancel">迟到取消 (默认 -2 分)</SelectItem>
+                  <SelectItem value="timeout_checkout">超时占用 (默认 -3 分)</SelectItem>
+                  <SelectItem value="manual_record">手动记录 (自定义分值)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>扣除分值</Label>
+              <Input
+                type="number"
+                min={1}
+                max={20}
+                value={recordForm.points}
+                onChange={(e) => setRecordForm(prev => ({ ...prev, points: parseInt(e.target.value) || 1 }))}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>描述 (可选)</Label>
+              <Textarea
+                placeholder="补充说明违约详情..."
+                value={recordForm.description}
+                onChange={(e) => setRecordForm(prev => ({ ...prev, description: e.target.value }))}
+                rows={3}
+              />
+            </div>
+          </div>
+          <DialogFooter className="gap-2 pt-2">
+            <Button variant="secondary" onClick={() => setIsRecordDialogOpen(false)}>取消</Button>
+            <Button
+              onClick={handleRecordViolation}
+              disabled={recordViolation.isPending || !recordForm.userId}
+              className="bg-rose-600 hover:bg-rose-700 text-white"
+            >
+              {recordViolation.isPending ? "提交中..." : "确认记录"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

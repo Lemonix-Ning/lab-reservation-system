@@ -6,6 +6,7 @@
 - 项目简介
 - 功能特性
 - 技术栈
+- 文档导航
 - 架构概览
 - 目录结构
 - 环境变量
@@ -17,6 +18,14 @@
 - 部署建议
 - 常见问题
 - 许可证
+
+## 文档导航
+- 统一文档入口：docs/README.md
+- 部署流程：DEPLOYMENT_GUIDE.md
+- OAuth 配置：docs/OAUTH_SETUP.md
+- 数据库结构：docs/DB_SCHEMA.md
+- 数据库优化：docs/DB_OPTIMIZATION.md
+- 账号注销：docs/ACCOUNT_DELETION.md
 
 ## 项目简介
 - 目标：规范高校实验室资源使用流程，提升资源利用率与透明度
@@ -108,12 +117,24 @@ OWNER_OPEN_ID="your-admin-openid"  # 项目所有者（自动授予 sysAdmin）
 # 数据库
 DATABASE_URL="mysql://root:password@localhost:3306/lab_reservation_db"
 
-# OAuth（后端将代理到授权服务）
+# OAuth - Manus（Mock OAuth，开发测试用）
 OAUTH_SERVER_URL="http://localhost:4000"
 OAUTH_CLIENT_ID="local-client-id"
 MOCK_OAUTH_ENABLED="true"
 MOCK_OPEN_ID="qq-admin-openid"
 VITE_OAUTH_AUTHORIZE_URL="http://localhost:4000/oauth/authorize"
+
+# OAuth - GitHub（可选）
+# 从 https://github.com/settings/developers 创建 OAuth App
+# 回调地址: http://localhost:3000/api/oauth/github/callback
+GITHUB_CLIENT_ID=""
+GITHUB_CLIENT_SECRET=""
+
+# OAuth - QQ（可选）
+# 从 https://connect.qq.com/manage.html 创建应用
+# 回调地址: http://localhost:3000/api/oauth/qq/callback
+QQ_APP_ID=""
+QQ_APP_KEY=""
 
 # 前端
 VITE_APP_ID="lab-reservation-local"
@@ -129,6 +150,11 @@ BUILT_IN_FORGE_API_KEY=""
 XFYUN_API_PASSWORD=""          # 留空将使用 Mock 模式
 XFYUN_MODEL="4.0Ultra"         # lite | generalv3 | generalv3.5 | 4.0Ultra
 ```
+
+**OAuth 配置说明**：
+- 至少配置一种 OAuth 方式（Manus/GitHub/QQ）
+- 详细配置步骤见 [docs/OAUTH_SETUP.md](docs/OAUTH_SETUP.md)
+- 开发环境可只使用 Manus Mock OAuth
 
 ## 快速开始
 1. 安装依赖
@@ -158,8 +184,15 @@ XFYUN_MODEL="4.0Ultra"         # lite | generalv3 | generalv3.5 | 4.0Ultra
    登录流程将通过后端的 `/api/oauth/authorize` 代理到 Mock 服务。
 
 ## 认证与权限
+- **多 OAuth 登录支持**（P3-1 新增）
+  - GitHub OAuth：使用 GitHub 账号登录
+  - QQ OAuth：使用 QQ 账号登录
+  - 学校统一认证：预留接口，可对接学校 CAS/OAuth
+  - 账号绑定：支持绑定多个 OAuth 账号，使用任意账号登录
+  - 配置指南：见 [docs/OAUTH_SETUP.md](docs/OAUTH_SETUP.md)
 - Cookie 会话：后端在 OAuth 回调后设置 `app_session_id`（`JWT_SECRET` 签名）
 - 角色体系：`student`、`teacher`、`labAdmin`、`sysAdmin`
+- 动态权限：14 项权限代码，支持角色权限灵活配置
 - 前端拦截：tRPC 调用在未登录时重定向到登录页（见 [main.tsx](file:///d:/workspace/A_bs/lab-reservation-system/client/src/main.tsx)）
 
 ## API 概览

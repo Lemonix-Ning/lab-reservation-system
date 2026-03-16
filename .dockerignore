@@ -1,0 +1,12 @@
+node_modules
+dist
+.git
+.gitignore
+docs/
+.env
+.env.production
+nginx/
+certbot/
+attached_assets/
+init-ssl.sh
+update.sh

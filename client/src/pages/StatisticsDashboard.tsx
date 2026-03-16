@@ -133,9 +133,7 @@ export default function StatisticsDashboard() {
     }
   };
 
-  if (!user || (user.role !== 'sysAdmin' && user.role !== 'labAdmin')) {
-    return <div className="p-8 text-center text-red-500">Access Denied - Admin Only</div>;
-  }
+  // 权限检查由后端API和菜单过滤处理，前端不再硬编码角色检查
 
   const isLoading = statsLoading || labLoading || statusLoading || timeLoading || userLoading;
 

@@ -1,5 +1,4 @@
 import { useAuth } from "@/_core/hooks/useAuth";
-import { useRole } from "@/contexts/RoleContext";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -17,7 +16,6 @@ import { format } from "date-fns";
 
 export default function BlockedPeriodManage() {
   const { user } = useAuth();
-  const { isLabAdmin, isSysAdmin } = useRole();
   const [, setLocation] = useLocation();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -61,10 +59,7 @@ export default function BlockedPeriodManage() {
     },
   });
 
-  if (!isLabAdmin && !isSysAdmin) {
-    setLocation('/');
-    return null;
-  }
+  // 权限检查由后端API和菜单过滤处理
 
   const handleOpenDialog = (period?: any) => {
     if (period) {

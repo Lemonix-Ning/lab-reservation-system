@@ -1,4 +1,4 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, decimal } from "drizzle-orm/mysql-core";
+import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, decimal, uniqueIndex, index, date } from "drizzle-orm/mysql-core";
 
 /**
  * Core user table backing auth flow.
@@ -68,6 +68,12 @@ export const labReservations = mysqlTable("lab_reservations", {
   rescheduleCount: int("rescheduleCount").default(0), // 改签次数计数
   // deviceId: int("deviceId"), // 设备ID（外键，NULL表示不针对特定设备）- TODO: 待后续支持
   // courseId: int("courseId"), // 课程ID（外键，NULL表示非课程相关预约）- TODO: 待后续支持
+  checkinTime: timestamp("checkinTime"),
+  checkoutTime: timestamp("checkoutTime"),
+  checkinMethod: mysqlEnum("checkinMethod", ["qrcode", "geofence", "face", "manual"]),
+  checkinLatitude: decimal("checkinLatitude", { precision: 10, scale: 7 }),
+  checkinLongitude: decimal("checkinLongitude", { precision: 10, scale: 7 }),
+  checkinDeviceInfo: varchar("checkinDeviceInfo", { length: 255 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
@@ -152,16 +158,22 @@ export type InsertApprovalConfig = typeof approvalConfigs.$inferInsert;
 /**
  * 审批历史表 - 记录每次审批操作
  */
-export const approvalHistories = mysqlTable("approval_histories", {
-  id: int("id").autoincrement().primaryKey(),
-  reservationId: int("reservationId").notNull(), // 对应预约ID
-  approverUserId: int("approverUserId").notNull(), // 审批人ID
-  approvalStage: int("approvalStage").notNull(), // 第几级审批 (1, 2, 3...)
-  decision: mysqlEnum("decision", ["pending", "approved", "rejected", "rescheduled"]).notNull(), // 审批决策
-  comment: text("comment"), // 审批意见/原因
-  approvedAt: timestamp("approvedAt").notNull().defaultNow(),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+export const approvalHistories = mysqlTable(
+  "approval_histories",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    reservationId: int("reservationId").notNull(),
+    approverUserId: int("approverUserId").notNull(),
+    approvalStage: int("approvalStage").notNull(),
+    decision: mysqlEnum("decision", ["pending", "approved", "rejected", "rescheduled"]).notNull(),
+    comment: text("comment"),
+    approvedAt: timestamp("approvedAt").notNull().defaultNow(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  (table) => ({
+    idxApprovalResStage: index("idx_approval_histories_res_stage").on(table.reservationId, table.approvalStage),
+  })
+);
 
 export type ApprovalHistory = typeof approvalHistories.$inferSelect;
 export type InsertApprovalHistory = typeof approvalHistories.$inferInsert;
@@ -186,18 +198,24 @@ export type InsertViolationRecord = typeof violationRecords.$inferInsert;
 /**
  * 黑名单表 - 存储被限制的用户及限制期限
  */
-export const blacklist = mysqlTable("blacklist", {
-  id: int("id").autoincrement().primaryKey(),
-  userId: int("userId").notNull(),
-  totalViolationPoints: int("totalViolationPoints").notNull(), // 当前总违约分
-  violationThreshold: int("violationThreshold").notNull(), // 触发黑名单的阈值分数
-  restrictionType: mysqlEnum("restrictionType", ["time_limit", "resource_limit"]).notNull(), // 限制类型：时间限制 或 资源限制
-  restrictedUntil: timestamp("restrictedUntil"), // 限制截止时间（时间限制类型用）
-  restrictedLabIds: text("restrictedLabIds"), // JSON: [1, 2, 3] 限制的实验室ID列表（资源限制类型用）
-  reason: text("reason"), // 进入黑名单的原因
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+export const blacklist = mysqlTable(
+  "blacklist",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    userId: int("userId").notNull(),
+    totalViolationPoints: int("totalViolationPoints").notNull(),
+    violationThreshold: int("violationThreshold").notNull(),
+    restrictionType: mysqlEnum("restrictionType", ["time_limit", "resource_limit"]).notNull(),
+    restrictedUntil: timestamp("restrictedUntil"),
+    restrictedLabIds: text("restrictedLabIds"),
+    reason: text("reason"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  (table) => ({
+    uqBlacklistUser: uniqueIndex("uq_blacklist_user").on(table.userId),
+  })
+);
 
 export type Blacklist = typeof blacklist.$inferSelect;
 export type InsertBlacklist = typeof blacklist.$inferInsert;
@@ -264,14 +282,20 @@ export type InsertCourseReservation = typeof courseReservations.$inferInsert;
 /**
  * 课程学生表 - 学生参与的课程
  */
-export const courseStudents = mysqlTable("course_students", {
-  id: int("id").autoincrement().primaryKey(),
-  courseId: int("courseId").notNull(), // 课程ID（外键）
-  studentId: int("studentId").notNull(), // 学生ID（外键）
-  status: mysqlEnum("status", ["enrolled", "dropped", "completed"]).default("enrolled").notNull(), // 选课状态
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+export const courseStudents = mysqlTable(
+  "course_students",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    courseId: int("courseId").notNull(),
+    studentId: int("studentId").notNull(),
+    status: mysqlEnum("status", ["enrolled", "dropped", "completed"]).default("enrolled").notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  (table) => ({
+    uqCourseStudents: uniqueIndex("uq_course_students").on(table.courseId, table.studentId),
+  })
+);
 
 export type CourseStudent = typeof courseStudents.$inferSelect;
 export type InsertCourseStudent = typeof courseStudents.$inferInsert;
@@ -337,16 +361,265 @@ export type InsertClass = typeof classes.$inferInsert;
 /**
  * 班级学生表 - 学生所属班级
  */
-export const classStudents = mysqlTable("class_students", {
-  id: int("id").autoincrement().primaryKey(),
-  classId: int("classId").notNull(), // 班级ID（外键）
-  studentId: int("studentId").notNull(), // 学生ID（外键）
-  studentNo: varchar("studentNo", { length: 50 }), // 学号
-  status: mysqlEnum("status", ["active", "graduated", "suspended", "withdrawn"]).default("active").notNull(), // 学生状态
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+export const classStudents = mysqlTable(
+  "class_students",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    classId: int("classId").notNull(),
+    studentId: int("studentId").notNull(),
+    studentNo: varchar("studentNo", { length: 50 }),
+    status: mysqlEnum("status", ["active", "graduated", "suspended", "withdrawn"]).default("active").notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  (table) => ({
+    uqClassStudents: uniqueIndex("uq_class_students").on(table.classId, table.studentId),
+  })
+);
 
 export type ClassStudent = typeof classStudents.$inferSelect;
 export type InsertClassStudent = typeof classStudents.$inferInsert;
 
+export const userOAuthBindings = mysqlTable(
+  "user_oauth_bindings",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    userId: int("userId").notNull(),
+    provider: mysqlEnum("provider", ["qq", "github", "school"]).notNull(),
+    providerUserId: varchar("providerUserId", { length: 128 }).notNull(),
+    providerEmail: varchar("providerEmail", { length: 320 }),
+    providerName: varchar("providerName", { length: 255 }),
+    accessToken: text("accessToken"),
+    refreshToken: text("refreshToken"),
+    tokenExpiresAt: timestamp("tokenExpiresAt"),
+    bindAt: timestamp("bindAt").defaultNow().notNull(),
+    lastUsedAt: timestamp("lastUsedAt"),
+    status: mysqlEnum("status", ["active", "unbound"]).default("active").notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  (table) => ({
+    uqProviderUser: uniqueIndex("uq_oauth_provider_user").on(table.provider, table.providerUserId),
+    idxUserId: index("idx_oauth_user").on(table.userId),
+  })
+);
+
+export type UserOAuthBinding = typeof userOAuthBindings.$inferSelect;
+export type InsertUserOAuthBinding = typeof userOAuthBindings.$inferInsert;
+
+export const labGeofences = mysqlTable(
+  "lab_geofences",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    labId: int("labId").notNull(),
+    latitude: decimal("latitude", { precision: 10, scale: 7 }).notNull(),
+    longitude: decimal("longitude", { precision: 10, scale: 7 }).notNull(),
+    radius: int("radius").default(100).notNull(),
+    name: varchar("name", { length: 100 }),
+    status: mysqlEnum("status", ["enabled", "disabled"]).default("enabled").notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  (table) => ({
+    idxLab: index("idx_geofence_lab").on(table.labId),
+  })
+);
+
+export type LabGeofence = typeof labGeofences.$inferSelect;
+export type InsertLabGeofence = typeof labGeofences.$inferInsert;
+
+// ============ 教师主导模式新增表 ============
+
+/**
+ * 节次时间对照表 - 学校作息时间映射
+ */
+export const periodTimeMapping = mysqlTable("period_time_mapping", {
+  id: int("id").autoincrement().primaryKey(),
+  periodNo: int("periodNo").notNull(), // 节次号（1-12）
+  periodName: varchar("periodName", { length: 20 }), // 节次名称（如：第1节）
+  startTime: varchar("startTime", { length: 10 }).notNull(), // 开始时间 HH:MM
+  endTime: varchar("endTime", { length: 10 }).notNull(), // 结束时间 HH:MM
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type PeriodTimeMapping = typeof periodTimeMapping.$inferSelect;
+export type InsertPeriodTimeMapping = typeof periodTimeMapping.$inferInsert;
+
+/**
+ * 学期配置表
+ */
+export const semesterConfigs = mysqlTable("semester_configs", {
+  id: int("id").autoincrement().primaryKey(),
+  semesterCode: varchar("semesterCode", { length: 20 }).notNull().unique(), // 学期代码，如：2025-2026-2
+  semesterName: varchar("semesterName", { length: 50 }).notNull(), // 学期名称
+  startDate: date("startDate", { mode: "date" }).notNull(), // 学期开始日期（第1周周一）
+  endDate: date("endDate", { mode: "date" }).notNull(), // 学期结束日期
+  weekCount: int("weekCount").default(20), // 总周数
+  isCurrent: int("isCurrent").default(0), // 是否当前学期
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type SemesterConfig = typeof semesterConfigs.$inferSelect;
+export type InsertSemesterConfig = typeof semesterConfigs.$inferInsert;
+
+/**
+ * 课程时间安排表 - 按周次/节次（区别于course_reservations按具体时间）
+ */
+export const courseSchedules = mysqlTable(
+  "course_schedules",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    courseId: int("courseId").notNull(), // 课程ID
+    labId: int("labId").notNull(), // 实验室ID
+    dayOfWeek: int("dayOfWeek").notNull(), // 星期几（1=周一, 7=周日）
+    startPeriod: int("startPeriod").notNull(), // 开始节次（1-12）
+    endPeriod: int("endPeriod").notNull(), // 结束节次（1-12）
+    startWeek: int("startWeek").default(1), // 开始周
+    endWeek: int("endWeek").default(16), // 结束周
+    weekType: mysqlEnum("weekType", ["all", "odd", "even"]).default("all"), // 周类型（全部/单周/双周）
+    status: mysqlEnum("status", ["pending", "approved", "rejected"]).default("pending"),
+    rejectReason: text("rejectReason"),
+    approvedAt: timestamp("approvedAt"),
+    approvedBy: int("approvedBy"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  (table) => ({
+    idxLab: index("idx_schedules_lab").on(table.labId),
+    idxCourse: index("idx_schedules_course").on(table.courseId),
+    idxDay: index("idx_schedules_day").on(table.dayOfWeek, table.startPeriod),
+  })
+);
+
+export type CourseSchedule = typeof courseSchedules.$inferSelect;
+export type InsertCourseSchedule = typeof courseSchedules.$inferInsert;
+
+/**
+ * 课堂签到会话表 - 教师开启签到时创建
+ */
+export const checkinSessions = mysqlTable(
+  "checkin_sessions",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    courseId: int("courseId").notNull(), // 课程ID
+    scheduleId: int("scheduleId"), // 关联的课程安排ID
+    labId: int("labId").notNull(), // 实验室ID
+    sessionDate: timestamp("sessionDate").notNull(), // 签到日期
+    weekNo: int("weekNo"), // 第几周
+    teacherId: int("teacherId").notNull(), // 创建签到的教师ID
+    title: varchar("title", { length: 200 }), // 本次课标题/主题
+    qrcodeToken: varchar("qrcodeToken", { length: 64 }), // 二维码令牌
+    qrcodeExpireAt: timestamp("qrcodeExpireAt"), // 二维码过期时间
+    qrcodeRefreshSeconds: int("qrcodeRefreshSeconds").default(30), // 二维码刷新间隔（秒）
+    allowLateMinutes: int("allowLateMinutes").default(15), // 迟到阈值（分钟）
+    useGeofence: int("useGeofence").default(1), // 是否启用地理围栏
+    status: mysqlEnum("status", ["active", "closed"]).default("active"), // 签到状态
+    startedAt: timestamp("startedAt").defaultNow(), // 开始时间
+    closedAt: timestamp("closedAt"), // 关闭时间
+    presentCount: int("presentCount").default(0), // 出勤人数
+    lateCount: int("lateCount").default(0), // 迟到人数
+    absentCount: int("absentCount").default(0), // 缺勤人数
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  (table) => ({
+    idxCourse: index("idx_session_course").on(table.courseId, table.sessionDate),
+    idxToken: index("idx_session_token").on(table.qrcodeToken),
+    idxTeacher: index("idx_session_teacher").on(table.teacherId),
+    idxStatus: index("idx_session_status").on(table.status),
+  })
+);
+
+export type CheckinSession = typeof checkinSessions.$inferSelect;
+export type InsertCheckinSession = typeof checkinSessions.$inferInsert;
+
+/**
+ * 课程出勤记录表 - 区别于lab_reservations的个人签到
+ */
+export const courseAttendances = mysqlTable(
+  "course_attendances",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    sessionId: int("sessionId").notNull(), // 签到会话ID
+    courseId: int("courseId").notNull(), // 课程ID
+    studentId: int("studentId").notNull(), // 学生ID
+    sessionDate: timestamp("sessionDate").notNull(), // 上课日期
+    checkinTime: timestamp("checkinTime"), // 签到时间
+    checkinMethod: mysqlEnum("checkinMethod", ["qrcode", "geofence", "manual", "face"]), // 签到方式
+    checkinLatitude: decimal("checkinLatitude", { precision: 10, scale: 7 }), // 签到纬度
+    checkinLongitude: decimal("checkinLongitude", { precision: 10, scale: 7 }), // 签到经度
+    status: mysqlEnum("status", ["present", "late", "absent", "leave"]).default("absent"), // 出勤状态
+    note: varchar("note", { length: 200 }), // 备注
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  (table) => ({
+    idxSession: index("idx_attendance_session").on(table.sessionId),
+    idxCourseDate: index("idx_attendance_course_date").on(table.courseId, table.sessionDate),
+    idxStudent: index("idx_attendance_student").on(table.studentId),
+    uqAttendance: uniqueIndex("uq_attendance").on(table.sessionId, table.studentId),
+  })
+);
+
+export type CourseAttendance = typeof courseAttendances.$inferSelect;
+export type InsertCourseAttendance = typeof courseAttendances.$inferInsert;
+
+/**
+ * 角色权限配置表 - 动态配置角色可访问的功能
+ */
+export const rolePermissions = mysqlTable("role_permissions", {
+  id: int("id").autoincrement().primaryKey(),
+  role: mysqlEnum("role", ["student", "teacher", "labAdmin", "sysAdmin"]).notNull(),
+  permissionCode: varchar("permissionCode", { length: 100 }).notNull(), // 权限代码
+  enabled: mysqlEnum("enabled", ["0", "1"]).default("1").notNull(), // 是否启用
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  uqRolePermission: uniqueIndex("uq_role_permission").on(table.role, table.permissionCode),
+}));
+
+export type RolePermission = typeof rolePermissions.$inferSelect;
+export type InsertRolePermission = typeof rolePermissions.$inferInsert;
+
+/**
+ * 用户角色白名单表 - 预导入教师/管理员名单，注册时自动分配角色
+ */
+export const userRoleWhitelist = mysqlTable("user_role_whitelist", {
+  id: int("id").autoincrement().primaryKey(),
+  email: varchar("email", { length: 320 }).notNull().unique(),
+  role: mysqlEnum("role", ["student", "teacher", "labAdmin", "sysAdmin"]).notNull(),
+  name: varchar("name", { length: 100 }),
+  department: varchar("department", { length: 200 }),
+  employeeNo: varchar("employeeNo", { length: 50 }), // 工号
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type UserRoleWhitelist = typeof userRoleWhitelist.$inferSelect;
+export type InsertUserRoleWhitelist = typeof userRoleWhitelist.$inferInsert;
+
+/**
+ * 角色升级申请表 - 用户申请成为教师/管理员
+ */
+export const roleUpgradeRequests = mysqlTable("role_upgrade_requests", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  requestedRole: mysqlEnum("requestedRole", ["teacher", "labAdmin"]).notNull(),
+  reason: text("reason"), // 申请理由
+  department: varchar("department", { length: 200 }), // 所属部门/学院
+  employeeNo: varchar("employeeNo", { length: 50 }), // 工号
+  proofUrl: varchar("proofUrl", { length: 500 }), // 证明材料URL
+  status: mysqlEnum("status", ["pending", "approved", "rejected"]).default("pending").notNull(),
+  reviewerId: int("reviewerId"), // 审核人
+  reviewComment: text("reviewComment"), // 审核意见
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  reviewedAt: timestamp("reviewedAt"),
+}, (table) => ({
+  idxUserId: index("idx_upgrade_user").on(table.userId),
+  idxStatus: index("idx_upgrade_status").on(table.status),
+}));
+
+export type RoleUpgradeRequest = typeof roleUpgradeRequests.$inferSelect;
+export type InsertRoleUpgradeRequest = typeof roleUpgradeRequests.$inferInsert;

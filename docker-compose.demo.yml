@@ -1,0 +1,76 @@
+# 比赛演示专用 Docker Compose 配置
+# 简化版本，包含自动初始化演示数据
+
+services:
+  # MySQL 数据库
+  db:
+    image: mysql:8.0
+    container_name: lab_demo_db
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: demo_root_pass
+      MYSQL_DATABASE: lab_reservation
+      MYSQL_USER: lab_user
+      MYSQL_PASSWORD: demo_pass_123
+      TZ: Asia/Shanghai
+    ports:
+      - "3306:3306"
+    volumes:
+      - demo_mysql_data:/var/lib/mysql
+    networks:
+      - demo_network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-pdemo_root_pass"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 20s
+
+  # 应用服务
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: lab-reservation-demo:latest
+    container_name: lab_demo_app
+    restart: always
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: mysql://lab_user:demo_pass_123@db:3306/lab_reservation
+      JWT_SECRET: demo_jwt_secret_change_in_production
+      OWNER_OPEN_ID: demo-admin
+      PORT: 3000
+      # GitHub OAuth（使用你的配置）
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
+      # 讯飞星火（可选）
+      XFYUN_API_PASSWORD: ${XFYUN_API_PASSWORD:-}
+      XFYUN_MODEL: spark-lite
+      TZ: Asia/Shanghai
+      # 演示模式标记
+      DEMO_MODE: "true"
+    ports:
+      - "3000:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - demo_network
+    command: >
+      sh -c "
+        echo '📦 Pushing database schema...' &&
+        pnpm drizzle-kit push &&
+        echo '✅ Schema pushed!' &&
+        echo '🌱 Seeding demo data...' &&
+        pnpm seed:demo &&
+        echo '✅ Demo data seeded!' &&
+        echo '🚀 Starting server on port 3000...' &&
+        node dist/index.js
+      "
+
+volumes:
+  demo_mysql_data:
+
+networks:
+  demo_network:
+    driver: bridge

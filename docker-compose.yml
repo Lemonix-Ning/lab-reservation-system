@@ -1,0 +1,84 @@
+services:
+  # ─── MySQL 8 数据库 ────────────────────────────────────────
+  db:
+    image: mysql:8.0
+    container_name: lab_db
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+      MYSQL_DATABASE: lab_reservation
+      MYSQL_USER: ${DB_USER}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+      TZ: Asia/Shanghai
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - app_network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  # ─── Node.js 应用 ──────────────────────────────────────────
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: lab-reservation-app:latest
+    container_name: lab_app
+    restart: always
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: mysql://${DB_USER}:${DB_PASSWORD}@db:3306/lab_reservation
+      JWT_SECRET: ${JWT_SECRET}
+      OWNER_OPEN_ID: ${OWNER_OPEN_ID}
+      PORT: 3000
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET}
+      QQ_APP_ID: ${QQ_APP_ID:-}
+      QQ_APP_KEY: ${QQ_APP_KEY:-}
+      XFYUN_API_PASSWORD: ${XFYUN_API_PASSWORD:-}
+      XFYUN_MODEL: ${XFYUN_MODEL:-spark-lite}
+      TZ: Asia/Shanghai
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - app_network
+    # 不直接暴露端口，由 Nginx 代理
+
+  # ─── Nginx 反向代理 + SSL ──────────────────────────────────
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: lab_nginx
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./certbot/www:/var/www/certbot:ro
+      - ./certbot/conf:/etc/letsencrypt:ro
+    depends_on:
+      - app
+    networks:
+      - app_network
+
+  # ─── Certbot（Let's Encrypt 证书申请 + 自动续期）──────────
+  certbot:
+    image: certbot/certbot:latest
+    container_name: lab_certbot
+    volumes:
+      - ./certbot/www:/var/www/certbot
+      - ./certbot/conf:/etc/letsencrypt
+    # 容器启动后进入待机循环，由 init-ssl.sh 触发证书申请
+    entrypoint: /bin/sh -c "trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot --quiet; sleep 12h & wait $${!}; done"
+
+volumes:
+  mysql_data:
+
+networks:
+  app_network:
+    driver: bridge

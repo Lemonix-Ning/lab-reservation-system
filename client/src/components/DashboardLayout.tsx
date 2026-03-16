@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/sidebar";
 import { getLoginUrl } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
-import { RoleProvider, useRole } from "@/contexts/RoleContext";
+import { useRole } from "@/contexts/RoleContext";
 import { 
   BarChart3, 
   Calendar, 
@@ -38,42 +38,64 @@ import {
   FileSearch,
   Home,
   Ban,
-  Clock
+  Clock,
+  MapPin,
+  QrCode,
+  Settings2,
+  Shield,
+  User,
+  UserCheck,
+  UserPlus,
+  Link2,
+  Trash2,
+  LayoutGrid
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
 import { NotificationBell } from './NotificationBell';
 import { Button } from "./ui/button";
+import { usePermission } from "@/contexts/PermissionContext";
 
+// 菜单项定义，支持基于角色和动态权限的访问控制
+// permission: 需要的权限代码（动态权限），undefined 表示只看角色
 const menuItems = [
-  // 系统管理员权限
+  // 系统管理员专属
   { icon: Home, label: "首页", path: "/", roles: ['sysAdmin'] },
   
   // 所有角色都能访问
   { icon: Calendar, label: "浏览实验室", path: "/labs", roles: ['student', 'teacher', 'labAdmin', 'sysAdmin'] },
   { icon: BookOpen, label: "我的预约", path: "/my-reservations", roles: ['student', 'teacher', 'labAdmin', 'sysAdmin'] },
   { icon: Calendar, label: "日历调度", path: "/calendar", roles: ['student', 'teacher', 'labAdmin', 'sysAdmin'] },
+  { icon: User, label: "身份申请", path: "/account/role-request", roles: ['student', 'teacher', 'labAdmin', 'sysAdmin'] },
   
   // 学生权限
   { icon: BookOpen, label: "我的课程", path: "/student/courses", roles: ['student'] },
+  { icon: QrCode, label: "课堂签到", path: "/student/checkin", roles: ['student'] },
   
-  // 教师权限
-  { icon: BookOpen, label: "课程管理", path: "/courses", roles: ['teacher', 'sysAdmin'] },
+  // 教师权限（可通过动态权限授予其他角色）
+  { icon: BookOpen, label: "课程管理", path: "/courses", roles: ['teacher', 'sysAdmin'], permission: 'course:manage' },
+  { icon: QrCode, label: "课堂签到", path: "/class-checkin", roles: ['teacher', 'sysAdmin'], permission: 'checkin:teacher' },
+  { icon: LayoutGrid, label: "实验室课表", path: "/schedule-board", roles: ['teacher', 'labAdmin', 'sysAdmin'] },
   
-  // 实验室管理员权限
-  { icon: Monitor, label: "实验室管理", path: "/admin/labs", roles: ['labAdmin', 'sysAdmin'] },
-  { icon: Settings, label: "预约审核", path: "/admin/reservations", roles: ['labAdmin', 'sysAdmin'] },
-  { icon: Monitor, label: "设备管理", path: "/admin/devices", roles: ['labAdmin', 'sysAdmin'] },
-  { icon: FileText, label: "规则配置", path: "/admin/rules", roles: ['labAdmin', 'sysAdmin'] },
-  { icon: Clock, label: "开放规则", path: "/admin/opening-rules", roles: ['labAdmin', 'sysAdmin'] },
-  { icon: Ban, label: "禁用时段", path: "/admin/blocked-periods", roles: ['labAdmin', 'sysAdmin'] },
+  // 实验室管理员 + 系统管理员（可通过动态权限授予教师）
+  { icon: Monitor, label: "实验室管理", path: "/admin/labs", roles: ['labAdmin', 'sysAdmin'], permission: 'lab:manage' },
+  { icon: Settings, label: "预约审核", path: "/admin/reservations", roles: ['labAdmin', 'sysAdmin'], permission: 'reservation:approve' },
+  { icon: Monitor, label: "设备管理", path: "/admin/devices", roles: ['labAdmin', 'sysAdmin'], permission: 'device:manage' },
+  { icon: FileText, label: "规则配置", path: "/admin/rules", roles: ['labAdmin', 'sysAdmin'], permission: 'rule:manage' },
+  { icon: Clock, label: "开放规则", path: "/admin/opening-rules", roles: ['labAdmin', 'sysAdmin'], permission: 'rule:manage' },
+  { icon: Ban, label: "禁用时段", path: "/admin/blocked-periods", roles: ['labAdmin', 'sysAdmin'], permission: 'rule:manage' },
+  { icon: MapPin, label: "地理围栏", path: "/admin/geofences", roles: ['labAdmin', 'sysAdmin'], permission: 'geofence:manage' },
+  { icon: AlertTriangle, label: "违约管理", path: "/admin/violations", roles: ['labAdmin', 'sysAdmin'], permission: 'violation:manage' },
+  { icon: FileSearch, label: "审计日志", path: "/admin/audit-logs", roles: ['labAdmin', 'sysAdmin'], permission: 'audit:view' },
+  { icon: TrendingUp, label: "数据统计", path: "/admin/statistics", roles: ['labAdmin', 'sysAdmin'], permission: 'statistics:view' },
   
-  // 系统管理员权限（续）
+  // 系统管理员专属
   { icon: ShieldCheck, label: "审批配置", path: "/admin/approval-config", roles: ['sysAdmin'] },
-  { icon: AlertTriangle, label: "违约管理", path: "/admin/violations", roles: ['sysAdmin'] },
-  { icon: FileSearch, label: "审计日志", path: "/admin/audit-logs", roles: ['sysAdmin'] },
-  { icon: TrendingUp, label: "数据统计导航", path: "/admin/statistics", roles: ['sysAdmin'] },
+  { icon: UserCheck, label: "身份审核", path: "/admin/role-requests", roles: ['sysAdmin'] },
+  { icon: UserPlus, label: "角色白名单", path: "/admin/whitelist", roles: ['sysAdmin'] },
+  { icon: Shield, label: "权限管理", path: "/admin/permissions", roles: ['sysAdmin'] },
+  { icon: Settings2, label: "系统设置", path: "/admin/settings", roles: ['sysAdmin'], permission: 'system:settings' },
 ];
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";
@@ -127,19 +149,17 @@ export default function DashboardLayout({
   }
 
   return (
-    <RoleProvider>
-      <SidebarProvider
-        style={
-          {
-            "--sidebar-width": `${sidebarWidth}px`,
-          } as CSSProperties
-        }
-      >
-        <DashboardLayoutContent setSidebarWidth={setSidebarWidth}>
-          {children}
-        </DashboardLayoutContent>
-      </SidebarProvider>
-    </RoleProvider>
+    <SidebarProvider
+      style={
+        {
+          "--sidebar-width": `${sidebarWidth}px`,
+        } as CSSProperties
+      }
+    >
+      <DashboardLayoutContent setSidebarWidth={setSidebarWidth}>
+        {children}
+      </DashboardLayoutContent>
+    </SidebarProvider>
   );
 }
 
@@ -152,7 +172,7 @@ function DashboardLayoutContent({
   children,
   setSidebarWidth,
 }: DashboardLayoutContentProps) {
-  const { user, logout } = useAuth();
+  const { user, logout, refresh: refreshUser } = useAuth();
   const { devRole, setDevRole, currentRole, isAdmin } = useRole();
   const [location, setLocation] = useLocation();
   const { state, toggleSidebar } = useSidebar();
@@ -160,10 +180,29 @@ function DashboardLayoutContent({
   const [isResizing, setIsResizing] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
   const isMobile = useIsMobile();
+  const { hasPermission } = usePermission();
 
-  // 根据用户角色过滤菜单项
+  // 定期刷新用户信息（每30秒），以便及时获取角色变更
+  useEffect(() => {
+    const interval = setInterval(() => {
+      refreshUser();
+    }, 30000); // 30秒
+
+    return () => clearInterval(interval);
+  }, [refreshUser]);
+
+  // 根据用户角色和动态权限过滤菜单项
   const filteredMenuItems = menuItems.filter(item => {
-    return item.roles.includes(currentRole || 'student');
+    // 首先检查角色
+    const hasRole = item.roles.includes(currentRole || 'student');
+    if (!hasRole) {
+      // 如果角色不匹配但有权限代码，检查是否有动态授权
+      if (item.permission && hasPermission(item.permission)) {
+        return true;
+      }
+      return false;
+    }
+    return true;
   });
 
   const activeMenuItem = filteredMenuItems.find(item => item.path === location);
@@ -256,51 +295,71 @@ function DashboardLayoutContent({
           </SidebarContent>
 
           <SidebarFooter className="p-3 space-y-3">
-            {/* 开发模式角色切换器 */}
-            {import.meta.env.DEV && (
-              <div className="bg-orange-50 border border-orange-200 rounded-lg p-2 group-data-[collapsible=icon]:hidden">
-                <div className="text-xs text-orange-600 font-semibold mb-2">🛠️ 开发模式</div>
-                <div className="flex flex-col gap-1.5">
-                  {/* 快速切换身份 */}
-                  <button
-                    onClick={() => {
-                      const redirectUri = encodeURIComponent("http://localhost:3000/api/oauth/callback");
-                      window.location.href = `http://localhost:4000/oauth/authorize?redirect_uri=${redirectUri}&openid=sysadmin-001&name=系统管理员&email=sysadmin@example.com&role=sysAdmin`;
-                    }}
-                    className="w-full px-2 py-1.5 text-xs rounded-md transition-all text-left bg-red-50 text-red-700 hover:bg-red-100 border border-red-200"
-                  >
-                    👑 系统管理员
-                  </button>
-                  <button
-                    onClick={() => {
-                      const redirectUri = encodeURIComponent("http://localhost:3000/api/oauth/callback");
-                      window.location.href = `http://localhost:4000/oauth/authorize?redirect_uri=${redirectUri}&openid=labadmin-001&name=实验室管理员&email=labadmin@example.com&role=labAdmin`;
-                    }}
-                    className="w-full px-2 py-1.5 text-xs rounded-md transition-all text-left bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-200"
-                  >
-                    🔧 实验室管理员
-                  </button>
-                  <button
-                    onClick={() => {
-                      const redirectUri = encodeURIComponent("http://localhost:3000/api/oauth/callback");
-                      window.location.href = `http://localhost:4000/oauth/authorize?redirect_uri=${redirectUri}&openid=teacher-001&name=教师&email=teacher@example.com&role=teacher`;
-                    }}
-                    className="w-full px-2 py-1.5 text-xs rounded-md transition-all text-left bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200"
-                  >
-                    👨‍🏫 教师
-                  </button>
-                  <button
-                    onClick={() => {
-                      const redirectUri = encodeURIComponent("http://localhost:3000/api/oauth/callback");
-                      window.location.href = `http://localhost:4000/oauth/authorize?redirect_uri=${redirectUri}&openid=student-001&name=学生&email=student@example.com&role=student`;
-                    }}
-                    className="w-full px-2 py-1.5 text-xs rounded-md transition-all text-left bg-green-50 text-green-700 hover:bg-green-100 border border-green-200"
-                  >
-                    👨‍🎓 学生
-                  </button>
+            {/* 开发模式账号切换器 */}
+            {import.meta.env.DEV && (() => {
+              const accounts = [
+                { openId: 'demo-admin', name: '系统管理员', icon: '👑', color: 'red' },
+                { openId: 'demo-labadmin', name: '实验室管理员', icon: '🔧', color: 'purple' },
+                { openId: 'demo-teacher-001', name: '教师', icon: '👨‍🏫', color: 'blue' },
+                { openId: 'demo-student-001', name: '学生', icon: '👨‍🎓', color: 'green' },
+              ];
+              
+              return (
+                <div className="bg-orange-50 border border-orange-200 rounded-lg p-2 group-data-[collapsible=icon]:hidden">
+                  <div className="text-xs text-orange-600 font-semibold mb-2">
+                    🛠️ 开发模式 - 快速切换账号
+                  </div>
+                  <div className="text-xs text-orange-500 mb-2">
+                    当前: {user?.name || user?.openId}
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    {accounts.map(account => {
+                      const isCurrent = user?.openId === account.openId;
+                      const colorClasses = {
+                        red: isCurrent 
+                          ? 'bg-red-100 text-red-800 border-red-300 font-semibold'
+                          : 'bg-red-50 text-red-700 hover:bg-red-100 border-red-200',
+                        purple: isCurrent
+                          ? 'bg-purple-100 text-purple-800 border-purple-300 font-semibold'
+                          : 'bg-purple-50 text-purple-700 hover:bg-purple-100 border-purple-200',
+                        blue: isCurrent
+                          ? 'bg-blue-100 text-blue-800 border-blue-300 font-semibold'
+                          : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border-blue-200',
+                        green: isCurrent
+                          ? 'bg-green-100 text-green-800 border-green-300 font-semibold'
+                          : 'bg-green-50 text-green-700 hover:bg-green-100 border-green-200',
+                      };
+                      
+                      return (
+                        <button
+                          key={account.openId}
+                          onClick={async () => {
+                            if (isCurrent) return;
+                            // 调用后端 API 切换账号
+                            try {
+                              const response = await fetch('/api/dev/switch-account', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ openId: account.openId }),
+                              });
+                              if (response.ok) {
+                                window.location.reload();
+                              }
+                            } catch (error) {
+                              console.error('切换账号失败:', error);
+                            }
+                          }}
+                          disabled={isCurrent}
+                          className={`w-full px-2 py-1.5 text-xs rounded-md transition-all text-left border ${colorClasses[account.color as keyof typeof colorClasses]} ${isCurrent ? 'cursor-default' : 'cursor-pointer'}`}
+                        >
+                          {account.icon} {account.name} {isCurrent && '✓'}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -320,13 +379,47 @@ function DashboardLayoutContent({
                   </div>
                 </button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuContent align="end" className="w-56">
+                <div className="px-2 py-1.5 text-sm font-semibold">
+                  {user?.name || "用户"}
+                </div>
+                <div className="px-2 py-1 text-xs text-muted-foreground">
+                  {user?.email || "未设置邮箱"}
+                </div>
+                <div className="h-px bg-border my-1" />
+                
+                <DropdownMenuItem
+                  onClick={() => setLocation("/account/profile")}
+                  className="cursor-pointer"
+                >
+                  <User className="mr-2 h-4 w-4" />
+                  <span>个人信息</span>
+                </DropdownMenuItem>
+                
+                <DropdownMenuItem
+                  onClick={() => setLocation("/account/bindings")}
+                  className="cursor-pointer"
+                >
+                  <Link2 className="mr-2 h-4 w-4" />
+                  <span>账号绑定</span>
+                </DropdownMenuItem>
+                
+                <div className="h-px bg-border my-1" />
+                
                 <DropdownMenuItem
                   onClick={logout}
-                  className="cursor-pointer text-destructive focus:text-destructive"
+                  className="cursor-pointer"
                 >
                   <LogOut className="mr-2 h-4 w-4" />
-                  <span>Sign out</span>
+                  <span>退出登录</span>
+                </DropdownMenuItem>
+                
+                <DropdownMenuItem
+                  onClick={() => setLocation("/account/delete")}
+                  className="cursor-pointer text-destructive focus:text-destructive"
+                >
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  <span>注销账号</span>
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

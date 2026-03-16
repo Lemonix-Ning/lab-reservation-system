@@ -1,15 +1,20 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
+// [3L] import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+// [3L] import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+// [3L] import { Progress } from "@/components/ui/progress";
 import { getLoginUrl } from "@/const";
 import { trpc } from "@/lib/trpc";
 import { useReservationRules } from "@/hooks/useReservationRules";
-import { FlaskConical, MapPin, Users, AlertCircle, CheckCircle, Clock, Lightbulb } from "lucide-react";
-import { useState, useEffect, useCallback } from "react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { FlaskConical, MapPin, Users, AlertCircle, Clock, Lightbulb, ShieldAlert } from "lucide-react";
+// [3L] import { Sparkles, TrendingUp, Activity, Heart } from "lucide-react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { toast } from "sonner";
 import { Link } from "wouter";
 
@@ -56,6 +61,9 @@ function getCurrentDateTimeLocal(): string {
 export default function LabRoomList() {
   const { user, isAuthenticated } = useAuth();
   const [selectedLab, setSelectedLab] = useState<number | null>(null);
+  const [buildingFilter, setBuildingFilter] = useState("all");
+  const [typeFilter, setTypeFilter] = useState("all");
+  // [3L] const [smartMode, setSmartMode] = useState(false);
   const [reservationForm, setReservationForm] = useState({
     title: "",
     reason: "",
@@ -68,7 +76,61 @@ export default function LabRoomList() {
   const { checkReservation, errorMessage, isChecking, formatRuleDescription, conflictingReservations } = useReservationRules();
 
   const { data: labs, isLoading } = trpc.labRoom.list.useQuery();
+  // [3L] const { data: recommendations } = trpc.labRoom.recommend.useQuery(
+  //   { peopleCount: reservationForm.peopleCount || undefined },
+  //   { enabled: smartMode },
+  // );
+  const { data: blacklistStatus } = trpc.violation.isBlacklisted.useQuery();
   const utils = trpc.useUtils();
+
+  // [3L] 推荐数据映射 labId → recommendation
+  // const recommendMap = useMemo(() => {
+  //   const map = new Map<number, typeof recommendations extends (infer T)[] ? T : never>();
+  //   if (recommendations) {
+  //     for (const rec of recommendations) {
+  //       map.set(rec.labId, rec);
+  //     }
+  //   }
+  //   return map;
+  // }, [recommendations]);
+
+  const enabledLabs = useMemo(() => (labs || []).filter(lab => lab.status === 'enabled'), [labs]);
+
+  const buildingOptions = useMemo(() => {
+    return Array.from(
+      new Set(
+        enabledLabs
+          .map((lab) => lab.building)
+          .filter((value): value is string => Boolean(value))
+      )
+    );
+  }, [enabledLabs]);
+
+  const typeOptions = useMemo(() => {
+    return Array.from(
+      new Set(
+        enabledLabs
+          .map((lab) => lab.type)
+          .filter((value): value is string => Boolean(value))
+      )
+    );
+  }, [enabledLabs]);
+
+  const filteredLabs = useMemo(() => {
+    return enabledLabs.filter((lab) => {
+      if (buildingFilter !== "all" && lab.building !== buildingFilter) return false;
+      if (typeFilter !== "all" && lab.type !== typeFilter) return false;
+      return true;
+    });
+    // [3L] 智能推荐模式：按综合得分排序
+    // if (smartMode && recommendations) {
+    //   result = [...result].sort((a, b) => {
+    //     const sa = recommendMap.get(a.id)?.totalScore || 0;
+    //     const sb = recommendMap.get(b.id)?.totalScore || 0;
+    //     return sb - sa;
+    //   });
+    // }
+  }, [enabledLabs, buildingFilter, typeFilter]);
   const createReservation = trpc.reservation.create.useMutation({
     onSuccess: () => {
       toast.success("预约申请已提交，等待审核");
@@ -174,15 +236,46 @@ export default function LabRoomList() {
       {/* 主内容 */}
       <main className="container py-8">
         <div className="mb-8">
-          <h2 className="text-3xl font-bold text-gray-900 mb-2">实验室列表</h2>
-          <p className="text-gray-600">选择实验室并提交预约申请</p>
+          <div>
+            <h2 className="text-3xl font-bold text-gray-900 mb-2">实验室列表</h2>
+            <p className="text-gray-600">选择实验室并提交预约申请</p>
+          </div>
+          {/* [3L] 智能推荐按钮和算法说明面板已注释 */}
         </div>
 
         {isLoading ? (
           <div className="text-center py-12">加载中...</div>
         ) : (
+          <>
+          {/* 分类筛选 */}
+          <div className="flex flex-wrap gap-3 mb-6">
+            <Select value={buildingFilter} onValueChange={setBuildingFilter}>
+              <SelectTrigger className="w-[160px]">
+                <SelectValue placeholder="全部楼宇" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">全部楼宇</SelectItem>
+                {buildingOptions.map((b) => (
+                  <SelectItem key={b} value={b}>{b}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={typeFilter} onValueChange={setTypeFilter}>
+              <SelectTrigger className="w-[160px]">
+                <SelectValue placeholder="全部类型" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">全部类型</SelectItem>
+                {typeOptions.map((t) => (
+                  <SelectItem key={t} value={t}>{t}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* 实验室卡片列表 */}
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {labs?.filter(lab => lab.status === 'enabled').map((lab) => (
+            {filteredLabs.map((lab) => (
               <Card key={lab.id} className="hover:shadow-lg transition-shadow">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
@@ -192,6 +285,7 @@ export default function LabRoomList() {
                   <CardDescription>{lab.roomNo}</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-2">
+                  {/* [3L] 评分详情、排名标记已注释 */}
                   <div className="flex items-center gap-2 text-sm text-gray-600">
                     <MapPin className="h-4 w-4" />
                     <span>{lab.building} - {lab.location}</span>
@@ -218,13 +312,42 @@ export default function LabRoomList() {
                 </CardContent>
               </Card>
             ))}
+            {filteredLabs.length === 0 && (
+              <div className="col-span-full text-center text-gray-500 py-12">当前分类下暂无实验室</div>
+            )}
           </div>
+          </>
         )}
       </main>
 
       {/* 预约对话框 */}
       <Dialog open={selectedLab !== null} onOpenChange={(open) => !open && setSelectedLab(null)}>
         <DialogContent>
+          {blacklistStatus?.isBlacklisted ? (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2 text-rose-600">
+                  <ShieldAlert className="h-5 w-5" /> 预约权限受限
+                </DialogTitle>
+              </DialogHeader>
+              <div className="py-4 space-y-4">
+                <div className="bg-rose-50 border border-rose-200 rounded-lg p-4 text-sm text-rose-800 space-y-2">
+                  <p className="font-semibold">⚠️ 您当前处于黑名单限制状态，无法提交新的预约申请。</p>
+                  {blacklistStatus.record?.reason && (
+                    <p>原因：{blacklistStatus.record.reason}</p>
+                  )}
+                  {blacklistStatus.record?.restrictedUntil && (
+                    <p>预计解除时间：{new Date(blacklistStatus.record.restrictedUntil).toLocaleDateString('zh-CN')}</p>
+                  )}
+                  <p className="text-xs text-rose-600 mt-2">如有疑问请联系实验室管理员。</p>
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setSelectedLab(null)}>关闭</Button>
+              </DialogFooter>
+            </>
+          ) : (
+          <>
           <DialogHeader>
             <DialogTitle>提交预约申请</DialogTitle>
             <DialogDescription>
@@ -375,6 +498,8 @@ export default function LabRoomList() {
               {createReservation.isPending ? "提交中..." : "提交申请"}
             </Button>
           </DialogFooter>
+          </>
+          )}
         </DialogContent>
       </Dialog>
     </div>
