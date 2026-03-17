@@ -20,12 +20,11 @@
 - 许可证
 
 ## 文档导航
-- 统一文档入口：docs/README.md
-- 部署流程：DEPLOYMENT_GUIDE.md
-- OAuth 配置：docs/OAUTH_SETUP.md
-- 数据库结构：docs/DB_SCHEMA.md
-- 数据库优化：docs/DB_OPTIMIZATION.md
-- 账号注销：docs/ACCOUNT_DELETION.md
+- 部署与运维：[DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md)
+- OAuth 配置：[docs/OAUTH_SETUP.md](docs/OAUTH_SETUP.md)
+- 数据库结构：[docs/DB_SCHEMA.md](docs/DB_SCHEMA.md)
+- 签到方式说明：[docs/CHECKIN_METHODS.md](docs/CHECKIN_METHODS.md)
+- 违约系统说明：[docs/VIOLATION_SYSTEM.md](docs/VIOLATION_SYSTEM.md)
 
 ## 项目简介
 - 目标：规范高校实验室资源使用流程，提升资源利用率与透明度
