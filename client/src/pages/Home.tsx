@@ -4,11 +4,20 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { getLoginUrl } from "@/const";
 import { useRole } from "@/contexts/RoleContext";
 import { BarChart3, Calendar, Clock, FlaskConical, Users, LayoutDashboard } from "lucide-react";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
+import { useEffect } from "react";
 
 export default function Home() {
   const { user, isAuthenticated } = useAuth();
   const { isAdmin } = useRole();
+  const [, setLocation] = useLocation();
+
+  // 未登录时自动跳转到登录页
+  useEffect(() => {
+    if (!isAuthenticated) {
+      setLocation("/login");
+    }
+  }, [isAuthenticated, setLocation]);
 
   return (
     <div className="bg-gradient-to-br from-blue-50 via-white to-purple-50 min-h-full -m-4 p-4">
@@ -22,11 +31,6 @@ export default function Home() {
           <p className="text-xl text-gray-600 mb-8">
             规范化管理，智能化调度，让实验室资源利用更高效
           </p>
-          {!isAuthenticated && (
-            <Button size="lg" asChild>
-              <a href={getLoginUrl()}>立即开始</a>
-            </Button>
-          )}
         </div>
 
         {/* 功能特性 */}
@@ -73,10 +77,9 @@ export default function Home() {
         </div>
 
         {/* 快速入口 */}
-        {isAuthenticated && (
-          <div className="bg-white rounded-lg shadow-sm p-8">
-            <h3 className="text-2xl font-bold text-gray-900 mb-6">快速入口</h3>
-            <div className="grid md:grid-cols-2 gap-4">
+        <div className="bg-white rounded-lg shadow-sm p-8">
+          <h3 className="text-2xl font-bold text-gray-900 mb-6">快速入口</h3>
+          <div className="grid md:grid-cols-2 gap-4">
               <Link href="/labs">
                 <Card className="cursor-pointer hover:shadow-md transition-shadow">
                   <CardHeader>
@@ -153,8 +156,7 @@ export default function Home() {
               )}
             </div>
           </div>
-        )}
-      </main>
+        </div>
 
       {/* 角色切换器已移至侧边栏 */}
     </div>
