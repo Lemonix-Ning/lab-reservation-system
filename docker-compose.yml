@@ -41,6 +41,7 @@ services:
       QQ_APP_KEY: ${QQ_APP_KEY:-}
       XFYUN_API_PASSWORD: ${XFYUN_API_PASSWORD:-}
       XFYUN_MODEL: ${XFYUN_MODEL:-spark-lite}
+      ENABLE_DEMO_LOGIN: ${ENABLE_DEMO_LOGIN:-false}
       TZ: Asia/Shanghai
     depends_on:
       db:

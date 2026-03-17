@@ -36,20 +36,23 @@ const providerConfigs: Record<OAuthProvider, ProviderConfig> = {
 export default function Login() {
   const [availableProviders, setAvailableProviders] = useState<OAuthProvider[]>([]);
   const [loading, setLoading] = useState(true);
-  const isDev = import.meta.env.DEV;
+  const [enableDemoLogin, setEnableDemoLogin] = useState(false);
 
   useEffect(() => {
-    // 获取可用的 OAuth 提供商
-    fetch("/api/oauth/providers")
-      .then((res) => res.json())
-      .then((data) => {
-        setAvailableProviders(data.providers || []);
+    // 获取可用的 OAuth 提供商和演示登录状态
+    Promise.all([
+      fetch("/api/oauth/providers").then((res) => res.json()),
+      fetch("/api/system/demo-login-enabled").then((res) => res.json()).catch(() => ({ enabled: false })),
+    ])
+      .then(([providersData, demoLoginData]) => {
+        setAvailableProviders(providersData.providers || []);
+        setEnableDemoLogin(demoLoginData.enabled || false);
         setLoading(false);
       })
       .catch((error) => {
-        console.error("Failed to fetch OAuth providers:", error);
-        // 默认为空，显示错误提示
+        console.error("Failed to fetch login config:", error);
         setAvailableProviders([]);
+        setEnableDemoLogin(false);
         setLoading(false);
       });
   }, []);
@@ -153,8 +156,8 @@ export default function Login() {
             </div>
           )}
 
-          {/* 开发模式：测试账号快速登录 */}
-          {isDev && (
+          {/* 演示账号快速登录（用于评委快速体验系统） */}
+          {enableDemoLogin && (
             <>
               <div className="relative my-6">
                 <div className="absolute inset-0 flex items-center">
@@ -162,7 +165,7 @@ export default function Login() {
                 </div>
                 <div className="relative flex justify-center text-xs">
                   <span className="bg-white px-2 text-orange-600 font-semibold">
-                    🛠️ 开发模式 - 演示账号快速登录
+                    🎯 演示账号快速登录
                   </span>
                 </div>
               </div>
@@ -184,7 +187,7 @@ export default function Login() {
               </div>
 
               <div className="text-xs text-orange-600 text-center bg-orange-50 p-2 rounded">
-                ⚠️ 演示账号仅在开发环境可用（来源：seed:demo）
+                💡 点击上方按钮可快速体验不同角色的功能
               </div>
             </>
           )}

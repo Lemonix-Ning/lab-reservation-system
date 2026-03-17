@@ -34,8 +34,8 @@ async function startServer() {
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   
-  // 开发模式：账号快速切换 API
-  if (process.env.NODE_ENV === "development") {
+  // 演示账号快速切换 API（用于评委快速体验系统）
+  if (process.env.NODE_ENV === "development" || process.env.ENABLE_DEMO_LOGIN === "true") {
     app.post("/api/dev/switch-account", async (req, res) => {
       const { openId } = req.body;
       
@@ -72,6 +72,12 @@ async function startServer() {
       res.json({ success: true });
     });
   }
+  
+  // 检查是否启用演示登录
+  app.get("/api/system/demo-login-enabled", (_req, res) => {
+    const enabled = process.env.NODE_ENV === "development" || process.env.ENABLE_DEMO_LOGIN === "true";
+    res.json({ enabled });
+  });
   
   // OAuth callback under /api/oauth/callback
   registerOAuthRoutes(app);

@@ -14,4 +14,7 @@ export const ENV = {
   // QQ OAuth
   qqAppId: process.env.QQ_APP_ID ?? "",
   qqAppKey: process.env.QQ_APP_KEY ?? "",
+  
+  // 演示登录（用于评委快速体验系统）
+  enableDemoLogin: process.env.ENABLE_DEMO_LOGIN === "true",
 };

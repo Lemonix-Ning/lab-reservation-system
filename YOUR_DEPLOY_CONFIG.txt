@@ -1,0 +1,45 @@
+╔══════════════════════════════════════════════════════════════╗
+║           你的专属部署配置 - 请保存此文件                    ║
+╚══════════════════════════════════════════════════════════════╝
+
+📋 服务器信息
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+服务器 IP：8.218.143.37
+域名：lemonix.loc.cc
+邮箱：3428476178@qq.com
+连接方式：阿里云控制台远程连接
+
+🔐 GitHub OAuth 配置
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Client ID：Ov23li1r0US2YHjsykMr
+Client Secret：efedb67397764bf611b5c28c17625046e50d8047
+
+🔑 数据库密钥
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+DB_ROOT_PASSWORD=wKM64EgLDXUhF9aT6nJ+
+DB_PASSWORD=rSYrnNcUMBX0CRV0oydf
+JWT_SECRET=UszePksFa4dzepkhYbv+uHJ+2NtIf0hphJThwHjQYqhfAtjTM2YBVDGjm+9JNw20
+
+📝 完整的 .env 文件内容（复制粘贴使用）
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+DB_ROOT_PASSWORD=wKM64EgLDXUhF9aT6nJ+
+DB_USER=lab_user
+DB_PASSWORD=rSYrnNcUMBX0CRV0oydf
+JWT_SECRET=UszePksFa4dzepkhYbv+uHJ+2NtIf0hphJThwHjQYqhfAtjTM2YBVDGjm+9JNw20
+OWNER_OPEN_ID=
+GITHUB_CLIENT_ID=Ov23li1r0US2YHjsykMr
+GITHUB_CLIENT_SECRET=efedb67397764bf611b5c28c17625046e50d8047
+QQ_APP_ID=
+QQ_APP_KEY=
+XFYUN_API_PASSWORD=
+XFYUN_MODEL=spark-lite
+
+⚠️ 重要提示
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. 请妥善保管此文件，包含敏感信息
+2. 不要将此文件上传到公开的地方
+3. Client Secret 只显示一次，已保存在此文件中
+
+╔══════════════════════════════════════════════════════════════╗
+║  配置已准备完毕，请查看 DEPLOY_STEPS.txt 开始部署           ║
+╚══════════════════════════════════════════════════════════════╝
