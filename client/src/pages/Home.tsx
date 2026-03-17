@@ -156,9 +156,9 @@ export default function Home() {
               )}
             </div>
           </div>
-        </div>
+        </main>
 
-      {/* 角色切换器已移至侧边栏 */}
-    </div>
-  );
-}
+        {/* 角色切换器已移至侧边栏 */}
+      </div>
+    );
+  }
