@@ -10,7 +10,7 @@ import { serveStatic, setupVite } from "./vite";
 import { sdk } from "./sdk";
 import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
 import { getSessionCookieOptions } from "./cookies";
-import { db } from "../db";
+import { getDb } from "../db";
 import { users } from "../../drizzle/schema";
 import { eq } from "drizzle-orm";
 
@@ -62,6 +62,11 @@ async function startServer() {
       
       try {
         // 从数据库获取用户信息
+        const db = await getDb();
+        if (!db) {
+          return res.status(500).json({ error: 'Database not available' });
+        }
+        
         const userResult = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
         if (!userResult || userResult.length === 0) {
           return res.status(404).json({ error: 'User not found' });
