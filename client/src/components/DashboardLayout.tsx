@@ -310,16 +310,16 @@ function DashboardLayoutContent({
             {/* 演示账号快速切换器 */}
             {enableDemoLogin && (() => {
               const accounts = [
-                { openId: 'demo-admin', name: '系统管理员', icon: '👑', color: 'red' },
-                { openId: 'demo-labadmin', name: '实验室管理员', icon: '🔧', color: 'purple' },
-                { openId: 'demo-teacher-001', name: '教师', icon: '👨‍🏫', color: 'blue' },
-                { openId: 'demo-student-001', name: '学生', icon: '👨‍🎓', color: 'green' },
+                { openId: 'demo-admin', name: '系统管理员', icon: '[管]', color: 'red' },
+                { openId: 'demo-labadmin', name: '实验室管理员', icon: '[实]', color: 'purple' },
+                { openId: 'demo-teacher-001', name: '教师', icon: '[师]', color: 'blue' },
+                { openId: 'demo-student-001', name: '学生', icon: '[生]', color: 'green' },
               ];
               
               return (
                 <div className="bg-orange-50 border border-orange-200 rounded-lg p-2 group-data-[collapsible=icon]:hidden">
                   <div className="text-xs text-orange-600 font-semibold mb-2">
-                    🎯 演示账号快速切换
+                    演示账号快速切换
                   </div>
                   <div className="text-xs text-orange-500 mb-2">
                     当前: {user?.name || user?.openId}
@@ -364,7 +364,7 @@ function DashboardLayoutContent({
                           disabled={isCurrent}
                           className={`w-full px-2 py-1.5 text-xs rounded-md transition-all text-left border ${colorClasses[account.color as keyof typeof colorClasses]} ${isCurrent ? 'cursor-default' : 'cursor-pointer'}`}
                         >
-                          {account.icon} {account.name} {isCurrent && '✓'}
+                          {account.icon} {account.name} {isCurrent && '[当前]'}
                         </button>
                       );
                     })}

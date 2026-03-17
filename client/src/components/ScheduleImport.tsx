@@ -315,7 +315,7 @@ export default function ScheduleImport({ onSuccess }: { onSuccess?: () => void }
                             <AlertTriangle className="h-3 w-3" /> {row.error}
                           </span>
                         ) : (
-                          <span className="text-green-600 text-xs">✓ 有效</span>
+                          <span className="text-green-600 text-xs">有效</span>
                         )}
                       </td>
                     </tr>

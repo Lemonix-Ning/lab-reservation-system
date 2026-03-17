@@ -916,7 +916,7 @@ export default function CalendarPage() {
                           {/* 冲突的预约列表 */}
                           {conflictDetails && conflictDetails.length > 0 && (
                             <div className="space-y-2">
-                              <p className="text-xs font-semibold text-red-800">⚠️ 冲突的预约（{conflictDetails.length}个）：</p>
+                              <p className="text-xs font-semibold text-red-800">冲突的预约（{conflictDetails.length}个）：</p>
                               <div className="max-h-48 overflow-y-auto space-y-2">
                                 {conflictDetails.map((conflict: any) => (
                                   <div key={conflict.id} className="bg-white rounded-lg p-2 text-xs border border-red-200">
@@ -940,7 +940,7 @@ export default function CalendarPage() {
                           {alternativeSlots.length > 0 && (
                             <div className="space-y-2">
                               <div className="flex items-center justify-between">
-                                <p className="text-xs font-semibold text-indigo-700">💡 智能调度建议</p>
+                                <p className="text-xs font-semibold text-indigo-700">智能调度建议</p>
                                 {suggestionsLoading && <RefreshCw className="h-4 w-4 animate-spin text-indigo-600" />}
                               </div>
                               <div className="max-h-48 overflow-y-auto space-y-2">

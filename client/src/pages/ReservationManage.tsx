@@ -265,9 +265,6 @@ export default function ReservationManage() {
                           {reservation.checkinTime ? (
                             <div className="text-xs space-y-1">
                               <div className={reservation.checkinMethod === 'geofence' ? 'text-green-600' : 'text-yellow-600'}>
-                                {reservation.checkinMethod === 'geofence' && '📍 '}
-                                {reservation.checkinMethod === 'manual' && '⚠️ '}
-                                {reservation.checkinMethod === 'qrcode' && '📱 '}
                                 签到: {format(new Date(reservation.checkinTime), "HH:mm")}
                               </div>
                               <div className="text-gray-400">

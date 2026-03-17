@@ -332,7 +332,7 @@ export default function LabRoomList() {
               </DialogHeader>
               <div className="py-4 space-y-4">
                 <div className="bg-rose-50 border border-rose-200 rounded-lg p-4 text-sm text-rose-800 space-y-2">
-                  <p className="font-semibold">⚠️ 您当前处于黑名单限制状态，无法提交新的预约申请。</p>
+                  <p className="font-semibold">您当前处于黑名单限制状态，无法提交新的预约申请。</p>
                   {blacklistStatus.record?.reason && (
                     <p>原因：{blacklistStatus.record.reason}</p>
                   )}

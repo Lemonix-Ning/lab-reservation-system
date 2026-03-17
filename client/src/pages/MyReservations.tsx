@@ -153,7 +153,7 @@ export default function MyReservations() {
               </div>
               {isBlacklisted && (
                 <div className="mt-3 p-2 rounded-lg bg-rose-100/50 border border-rose-200 text-sm text-rose-700">
-                  ⚠️ 您的预约权限已被限制。在限制解除前无法提交新的预约申请。请遵守实验室管理规定。
+                  您的预约权限已被限制。在限制解除前无法提交新的预约申请。请遵守实验室管理规定。
                 </div>
               )}
             </div>
@@ -202,9 +202,9 @@ export default function MyReservations() {
                         {reservation.checkinTime ? (
                           <div className="text-xs space-y-1">
                             <div className={reservation.checkinMethod === 'geofence' ? 'text-green-600' : 'text-yellow-600'}>
-                              {reservation.checkinMethod === 'geofence' && '📍 '}
-                              {reservation.checkinMethod === 'manual' && '✋ '}
-                              {reservation.checkinMethod === 'qrcode' && '📱 '}
+                              {reservation.checkinMethod === 'geofence' && ''}
+                              {reservation.checkinMethod === 'manual' && ''}
+                              {reservation.checkinMethod === 'qrcode' && ''}
                               签到 {format(new Date(reservation.checkinTime), "HH:mm")}
                             </div>
                             <div className="text-gray-400">

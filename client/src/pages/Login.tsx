@@ -94,10 +94,10 @@ export default function Login() {
   };
 
   const devAccounts = [
-    { openId: 'demo-admin', name: '系统管理员', icon: '👑', color: 'bg-red-500 hover:bg-red-600' },
-    { openId: 'demo-labadmin', name: '实验室管理员', icon: '🔧', color: 'bg-purple-500 hover:bg-purple-600' },
-    { openId: 'demo-teacher-001', name: '教师', icon: '👨‍🏫', color: 'bg-blue-500 hover:bg-blue-600' },
-    { openId: 'demo-student-001', name: '学生', icon: '👨‍🎓', color: 'bg-green-500 hover:bg-green-600' },
+    { openId: 'demo-admin', name: '系统管理员', icon: '[管]', color: 'bg-red-500 hover:bg-red-600' },
+    { openId: 'demo-labadmin', name: '实验室管理员', icon: '[实]', color: 'bg-purple-500 hover:bg-purple-600' },
+    { openId: 'demo-teacher-001', name: '教师', icon: '[师]', color: 'bg-blue-500 hover:bg-blue-600' },
+    { openId: 'demo-student-001', name: '学生', icon: '[生]', color: 'bg-green-500 hover:bg-green-600' },
   ];
 
   if (loading) {
@@ -165,7 +165,7 @@ export default function Login() {
                 </div>
                 <div className="relative flex justify-center text-xs">
                   <span className="bg-white px-2 text-orange-600 font-semibold">
-                    🎯 演示账号快速登录
+                    演示账号快速登录
                   </span>
                 </div>
               </div>
@@ -187,7 +187,7 @@ export default function Login() {
               </div>
 
               <div className="text-xs text-orange-600 text-center bg-orange-50 p-2 rounded">
-                💡 点击上方按钮可快速体验不同角色的功能
+                点击上方按钮可快速体验不同角色的功能
               </div>
             </>
           )}

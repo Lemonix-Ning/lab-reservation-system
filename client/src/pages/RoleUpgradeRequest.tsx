@@ -153,7 +153,7 @@ export default function RoleUpgradeRequest() {
                     </Select>
                     {user?.role === 'student' && (
                       <p className="text-xs text-muted-foreground">
-                        💡 学生需要先申请成为教师，才能申请实验室管理员
+                        学生需要先申请成为教师，才能申请实验室管理员
                       </p>
                     )}
                   </div>

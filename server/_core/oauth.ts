@@ -51,11 +51,11 @@ if (ENV.qqAppId && ENV.qqAppKey) {
 // 检查是否至少有一个提供商可用
 const availableProviders = providerFactory.getAllProviders();
 if (availableProviders.length === 0) {
-  console.warn("[OAuth] ⚠️  No OAuth providers configured! Please configure at least one:");
+  console.warn("[OAuth] No OAuth providers configured! Please configure at least one:");
   console.warn("  - GitHub: Set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET");
   console.warn("  - QQ: Set QQ_APP_ID and QQ_APP_KEY");
 } else {
-  console.log(`[OAuth] ✓ ${availableProviders.length} provider(s) available:`, availableProviders.join(", "));
+  console.log(`[OAuth] OK ${availableProviders.length} provider(s) available:`, availableProviders.join(", "));
 }
 
 export function registerOAuthRoutes(app: Express) {

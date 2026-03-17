@@ -123,7 +123,7 @@ export default function StatisticsDashboard() {
       });
 
       setAiInsight(result.text);
-      showNotification('✨ AI 洞察报告已生成！');
+      showNotification('AI 洞察报告已生成');
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : '讯飞星火分析失败';
       showNotification(`${errorMsg}，请检查配置或重试`, 'error');

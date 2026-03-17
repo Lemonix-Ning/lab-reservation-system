@@ -556,7 +556,7 @@ export default function AuditLogPage() {
                       const valueLabels: Record<string, Record<string, string>> = {
                         method: { qrcode: '扫码签到', geofence: '位置签到', manual: '手动签到' },
                         hasLocation: { true: '是', false: '否' },
-                        locationVerified: { true: '是 ✓', false: '否' },
+                        locationVerified: { true: '是', false: '否' },
                       };
                       return Object.entries(details).map(([key, value]) => (
                         <div key={key} className="p-3 flex justify-between items-start">
