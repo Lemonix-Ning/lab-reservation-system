@@ -166,7 +166,7 @@ export default function DashboardLayout({
         } as CSSProperties
       }
     >
-      <DashboardLayoutContent setSidebarWidth={setSidebarWidth}>
+      <DashboardLayoutContent setSidebarWidth={setSidebarWidth} enableDemoLogin={enableDemoLogin}>
         {children}
       </DashboardLayoutContent>
     </SidebarProvider>
@@ -176,11 +176,13 @@ export default function DashboardLayout({
 type DashboardLayoutContentProps = {
   children: React.ReactNode;
   setSidebarWidth: (width: number) => void;
+  enableDemoLogin: boolean;
 };
 
 function DashboardLayoutContent({
   children,
   setSidebarWidth,
+  enableDemoLogin,
 }: DashboardLayoutContentProps) {
   const { user, logout, refresh: refreshUser } = useAuth();
   const { devRole, setDevRole, currentRole, isAdmin } = useRole();
