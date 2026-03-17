@@ -58,10 +58,19 @@ async function startServer() {
       const { sdk } = await import('./sdk');
       const { COOKIE_NAME, ONE_YEAR_MS } = await import('@shared/const');
       const { getSessionCookieOptions } = await import('./cookies');
+      const { db } = await import('../db');
+      const { users } = await import('../../drizzle/schema');
+      const { eq } = await import('drizzle-orm');
+      
+      // 从数据库获取用户信息
+      const user = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
+      if (!user || user.length === 0) {
+        return res.status(404).json({ error: 'User not found' });
+      }
       
       // 创建新的 session token
       const sessionToken = await sdk.createSessionToken(openId, {
-        name: openId,
+        name: user[0].name || openId,
         expiresInMs: ONE_YEAR_MS,
       });
       
