@@ -7,6 +7,12 @@ import { registerOAuthRoutes } from "./oauth";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
+import { sdk } from "./sdk";
+import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
+import { getSessionCookieOptions } from "./cookies";
+import { db } from "../db";
+import { users } from "../../drizzle/schema";
+import { eq } from "drizzle-orm";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -54,31 +60,30 @@ async function startServer() {
         return res.status(403).json({ error: 'Not allowed' });
       }
       
-      // 导入必要的模块
-      const { sdk } = await import('./sdk');
-      const { COOKIE_NAME, ONE_YEAR_MS } = await import('@shared/const');
-      const { getSessionCookieOptions } = await import('./cookies');
-      const { db } = await import('../db');
-      const { users } = await import('../../drizzle/schema');
-      const { eq } = await import('drizzle-orm');
-      
-      // 从数据库获取用户信息
-      const user = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
-      if (!user || user.length === 0) {
-        return res.status(404).json({ error: 'User not found' });
+      try {
+        // 从数据库获取用户信息
+        const userResult = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
+        if (!userResult || userResult.length === 0) {
+          return res.status(404).json({ error: 'User not found' });
+        }
+        
+        const user = userResult[0];
+        
+        // 创建新的 session token
+        const sessionToken = await sdk.createSessionToken(openId, {
+          name: user.name || openId,
+          expiresInMs: ONE_YEAR_MS,
+        });
+        
+        // 设置 cookie
+        const cookieOptions = getSessionCookieOptions(req);
+        res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
+        
+        res.json({ success: true });
+      } catch (error) {
+        console.error('[Dev Login] Error:', error);
+        res.status(500).json({ error: 'Internal server error' });
       }
-      
-      // 创建新的 session token
-      const sessionToken = await sdk.createSessionToken(openId, {
-        name: user[0].name || openId,
-        expiresInMs: ONE_YEAR_MS,
-      });
-      
-      // 设置 cookie
-      const cookieOptions = getSessionCookieOptions(req);
-      res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
-      
-      res.json({ success: true });
     });
   }
   
