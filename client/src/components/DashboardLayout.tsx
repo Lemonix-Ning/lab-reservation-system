@@ -22,6 +22,7 @@ import {
 import { getLoginUrl } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
 import { useRole } from "@/contexts/RoleContext";
+import { useState, useEffect } from "react";
 import { 
   BarChart3, 
   Calendar, 
@@ -113,10 +114,19 @@ export default function DashboardLayout({
     return saved ? parseInt(saved, 10) : DEFAULT_WIDTH;
   });
   const { loading, user } = useAuth();
+  const [enableDemoLogin, setEnableDemoLogin] = useState(false);
 
   useEffect(() => {
     localStorage.setItem(SIDEBAR_WIDTH_KEY, sidebarWidth.toString());
   }, [sidebarWidth]);
+
+  // 检查是否启用演示登录
+  useEffect(() => {
+    fetch("/api/system/demo-login-enabled")
+      .then((res) => res.json())
+      .then((data) => setEnableDemoLogin(data.enabled || false))
+      .catch(() => setEnableDemoLogin(false));
+  }, []);
 
   if (loading) {
     return <DashboardLayoutSkeleton />
@@ -295,8 +305,8 @@ function DashboardLayoutContent({
           </SidebarContent>
 
           <SidebarFooter className="p-3 space-y-3">
-            {/* 开发模式账号切换器 */}
-            {import.meta.env.DEV && (() => {
+            {/* 演示账号快速切换器 */}
+            {enableDemoLogin && (() => {
               const accounts = [
                 { openId: 'demo-admin', name: '系统管理员', icon: '👑', color: 'red' },
                 { openId: 'demo-labadmin', name: '实验室管理员', icon: '🔧', color: 'purple' },
@@ -307,7 +317,7 @@ function DashboardLayoutContent({
               return (
                 <div className="bg-orange-50 border border-orange-200 rounded-lg p-2 group-data-[collapsible=icon]:hidden">
                   <div className="text-xs text-orange-600 font-semibold mb-2">
-                    🛠️ 开发模式 - 快速切换账号
+                    🎯 演示账号快速切换
                   </div>
                   <div className="text-xs text-orange-500 mb-2">
                     当前: {user?.name || user?.openId}
