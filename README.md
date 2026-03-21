@@ -6,6 +6,7 @@
 - 项目简介
 - 功能特性
 - 技术栈
+- 运行前置
 - 文档导航
 - 架构概览
 - 目录结构
@@ -57,6 +58,12 @@
 - AI
   - 讯飞星火 Spark（HTTP + APIPassword），支持 Mock 模式
 
+## 运行前置
+- Node.js：建议 20 LTS 及以上
+- pnpm：建议 10.x（与锁文件一致）
+- MySQL：建议 8.0+
+- 可选：Docker / Docker Compose（用于容器化部署）
+
 ## 架构概览
 - 开发模式
   - 单进程集成：后端在开发环境自动挂载 Vite 中间件，提供 HMR 与前端资源
@@ -64,13 +71,13 @@
 - 生产模式
   - 前端构建产物输出至 `dist/public`，后端以 Node 进程提供静态资源与 API
 - 关键位置
-  - 开发服务器入口：[index.ts](file:///d:/workspace/A_bs/lab-reservation-system/server/_core/index.ts)
-  - Vite 集成与静态资源服务：[vite.ts](file:///d:/workspace/A_bs/lab-reservation-system/server/_core/vite.ts)
-  - tRPC 路由与权限：[routers.ts](file:///d:/workspace/A_bs/lab-reservation-system/server/routers.ts)
-  - 环境变量读取：[env.ts](file:///d:/workspace/A_bs/lab-reservation-system/server/_core/env.ts)
-  - 数据库表结构：[schema.ts](file:///d:/workspace/A_bs/lab-reservation-system/drizzle/schema.ts)
-  - 测试配置：[vitest.config.ts](file:///d:/workspace/A_bs/lab-reservation-system/vitest.config.ts)
-  - 构建配置：[vite.config.ts](file:///d:/workspace/A_bs/lab-reservation-system/vite.config.ts)
+  - 开发服务器入口：[server/_core/index.ts](server/_core/index.ts)
+  - Vite 集成与静态资源服务：[server/_core/vite.ts](server/_core/vite.ts)
+  - tRPC 路由与权限：[server/routers.ts](server/routers.ts)
+  - 环境变量读取：[server/_core/env.ts](server/_core/env.ts)
+  - 数据库表结构：[drizzle/schema.ts](drizzle/schema.ts)
+  - 测试配置：[vitest.config.ts](vitest.config.ts)
+  - 构建配置：[vite.config.ts](vite.config.ts)
 
 ## 目录结构
 ```
@@ -192,10 +199,10 @@ XFYUN_MODEL="4.0Ultra"         # lite | generalv3 | generalv3.5 | 4.0Ultra
 - Cookie 会话：后端在 OAuth 回调后设置 `app_session_id`（`JWT_SECRET` 签名）
 - 角色体系：`student`、`teacher`、`labAdmin`、`sysAdmin`
 - 动态权限：14 项权限代码，支持角色权限灵活配置
-- 前端拦截：tRPC 调用在未登录时重定向到登录页（见 [main.tsx](file:///d:/workspace/A_bs/lab-reservation-system/client/src/main.tsx)）
+- 前端拦截：tRPC 调用在未登录时重定向到登录页（见 [client/src/main.tsx](client/src/main.tsx)）
 
 ## API 概览
-- tRPC 路由聚合见 [routers.ts](file:///d:/workspace/A_bs/lab-reservation-system/server/routers.ts)
+- tRPC 路由聚合见 [server/routers.ts](server/routers.ts)
 - 主要分组
   - `auth`：登录态、退出
   - `user`：用户查询
@@ -211,7 +218,7 @@ XFYUN_MODEL="4.0Ultra"         # lite | generalv3 | generalv3.5 | 4.0Ultra
   - `course`/`courseReservation`：课程与课程预约
 
 ## 数据库设计概览
-- 核心表（详见 [schema.ts](file:///d:/workspace/A_bs/lab-reservation-system/drizzle/schema.ts)）
+- 核心表（详见 [drizzle/schema.ts](drizzle/schema.ts)）
   - `users`：用户（含角色枚举）
   - `lab_rooms`：实验室信息与状态
   - `lab_reservations`：预约记录（含状态、改签信息）
@@ -230,7 +237,7 @@ XFYUN_MODEL="4.0Ultra"         # lite | generalv3 | generalv3.5 | 4.0Ultra
   pnpm test
   ```
 - 范围：`server/**/*.test.ts`，包含冲突检测、统计计算、审批与违规则治理等
-- 配置：见 [vitest.config.ts](file:///d:/workspace/A_bs/lab-reservation-system/vitest.config.ts)
+- 配置：见 [vitest.config.ts](vitest.config.ts)
 
 ## 部署建议
 - 构建与启动
@@ -246,7 +253,7 @@ XFYUN_MODEL="4.0Ultra"         # lite | generalv3 | generalv3.5 | 4.0Ultra
 ## 常见问题
 - 无法登录或提示“请先登录”
   - 检查 `VITE_SERVER_ORIGIN` 与实际访问域一致
-  - 确认后端 OAuth 回调与 Cookie 设置正常（见 [cookies.ts](file:///d:/workspace/A_bs/lab-reservation-system/server/_core/cookies.ts)）
+  - 确认后端 OAuth 回调与 Cookie 设置正常（见 [server/_core/cookies.ts](server/_core/cookies.ts)）
 - 端口占用
   - 后端会从 `PORT=3000` 起自动查找可用端口，控制台会提示实际端口
 - 数据库连接失败
