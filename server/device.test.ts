@@ -4,8 +4,9 @@ import type { TrpcContext } from "./_core/context";
 import * as db from "./db";
 
 type AuthenticatedUser = NonNullable<TrpcContext["user"]>;
+type TestRole = "student" | "teacher" | "labAdmin" | "sysAdmin";
 
-function createTestContext(role: "user" | "admin" = "user", userId: number = 1): TrpcContext {
+function createTestContext(role: TestRole = "student", userId: number = 1): TrpcContext {
   const user: AuthenticatedUser = {
     id: userId,
     openId: `test-user-${userId}`,
@@ -35,7 +36,7 @@ function createTestContext(role: "user" | "admin" = "user", userId: number = 1):
 describe("Device Management", () => {
   describe("device.list", () => {
     it("should return all devices", async () => {
-      const caller = appRouter.createCaller(createTestContext("user"));
+      const caller = appRouter.createCaller(createTestContext("student"));
       const devices = await caller.device.list();
       expect(Array.isArray(devices)).toBe(true);
     });
@@ -43,7 +44,7 @@ describe("Device Management", () => {
 
   describe("device.getById", () => {
     it("should return device by id when exists", async () => {
-      const caller = appRouter.createCaller(createTestContext("user"));
+      const caller = appRouter.createCaller(createTestContext("student"));
       
       // Mock the database
       vi.spyOn(db, "getDeviceById").mockResolvedValue({
@@ -65,7 +66,7 @@ describe("Device Management", () => {
     });
 
     it("should return undefined when device not found", async () => {
-      const caller = appRouter.createCaller(createTestContext("user"));
+      const caller = appRouter.createCaller(createTestContext("student"));
       
       vi.spyOn(db, "getDeviceById").mockResolvedValue(undefined);
 
@@ -76,7 +77,7 @@ describe("Device Management", () => {
 
   describe("device.listByLab", () => {
     it("should return devices for a specific lab", async () => {
-      const caller = appRouter.createCaller(createTestContext("user"));
+      const caller = appRouter.createCaller(createTestContext("student"));
       
       vi.spyOn(db, "getDevicesByLabId").mockResolvedValue([
         {
@@ -115,7 +116,7 @@ describe("Device Management", () => {
 
   describe("device.create", () => {
     it("should create device as admin", async () => {
-      const caller = appRouter.createCaller(createTestContext("admin"));
+      const caller = appRouter.createCaller(createTestContext("labAdmin"));
       
       vi.spyOn(db, "createDevice").mockResolvedValue({ insertId: 1 } as any);
 
@@ -133,7 +134,7 @@ describe("Device Management", () => {
     });
 
     it("should fail to create device as non-admin", async () => {
-      const caller = appRouter.createCaller(createTestContext("user"));
+      const caller = appRouter.createCaller(createTestContext("student"));
 
       try {
         await caller.device.create({
@@ -152,7 +153,7 @@ describe("Device Management", () => {
 
   describe("device.update", () => {
     it("should update device as admin", async () => {
-      const caller = appRouter.createCaller(createTestContext("admin"));
+      const caller = appRouter.createCaller(createTestContext("labAdmin"));
       
       vi.spyOn(db, "updateDevice").mockResolvedValue(undefined);
 
@@ -166,7 +167,7 @@ describe("Device Management", () => {
     });
 
     it("should fail to update device as non-admin", async () => {
-      const caller = appRouter.createCaller(createTestContext("user"));
+      const caller = appRouter.createCaller(createTestContext("student"));
 
       try {
         await caller.device.update({
@@ -182,7 +183,7 @@ describe("Device Management", () => {
 
   describe("device.delete", () => {
     it("should delete device as admin", async () => {
-      const caller = appRouter.createCaller(createTestContext("admin"));
+      const caller = appRouter.createCaller(createTestContext("labAdmin"));
       
       vi.spyOn(db, "deleteDevice").mockResolvedValue(undefined);
 
@@ -191,7 +192,7 @@ describe("Device Management", () => {
     });
 
     it("should fail to delete device as non-admin", async () => {
-      const caller = appRouter.createCaller(createTestContext("user"));
+      const caller = appRouter.createCaller(createTestContext("student"));
 
       try {
         await caller.device.delete({ id: 1 });
@@ -204,7 +205,7 @@ describe("Device Management", () => {
 
   describe("Device Status Validation", () => {
     it("should only allow valid status values", async () => {
-      const caller = appRouter.createCaller(createTestContext("admin"));
+      const caller = appRouter.createCaller(createTestContext("labAdmin"));
       
       // Valid statuses should work
       const validStatuses = ["available", "maintenance", "retired"];

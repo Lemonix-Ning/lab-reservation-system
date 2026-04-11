@@ -1,7 +1,6 @@
 'use client';
 
 import { useAuth } from "@/_core/hooks/useAuth";
-import { useRole } from "@/contexts/RoleContext";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -29,7 +28,6 @@ const DAYS_OF_WEEK = [
 
 export default function OpeningRuleManage() {
   const { user } = useAuth();
-  const { isLabAdmin, isSysAdmin } = useRole();
   const [, setLocation] = useLocation();
   const [selectedLabId, setSelectedLabId] = useState<number | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -58,15 +56,7 @@ export default function OpeningRuleManage() {
     },
   });
 
-  useEffect(() => {
-    if (!isLabAdmin && !isSysAdmin) {
-      setLocation('/');
-    }
-  }, [isLabAdmin, isSysAdmin, setLocation]);
-
-  if (!isLabAdmin && !isSysAdmin) {
-    return null;
-  }
+  // 权限检查由后端API和菜单过滤处理
 
   const handleOpenDialog = (rule?: any, dayOfWeek?: number) => {
     if (rule) {

@@ -6,6 +6,8 @@
 - 项目简介
 - 功能特性
 - 技术栈
+- 运行前置
+- 文档导航
 - 架构概览
 - 目录结构
 - 环境变量
@@ -15,8 +17,16 @@
 - 数据库设计概览
 - 测试
 - 部署建议
+- 静态托管部署（可选）
 - 常见问题
 - 许可证
+
+## 文档导航
+- 部署与运维：[DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md)
+- OAuth 配置：[docs/OAUTH_SETUP.md](docs/OAUTH_SETUP.md)
+- 数据库结构：[docs/DB_SCHEMA.md](docs/DB_SCHEMA.md)
+- 签到方式说明：[docs/CHECKIN_METHODS.md](docs/CHECKIN_METHODS.md)
+- 违约系统说明：[docs/VIOLATION_SYSTEM.md](docs/VIOLATION_SYSTEM.md)
 
 ## 项目简介
 - 目标：规范高校实验室资源使用流程，提升资源利用率与透明度
@@ -25,13 +35,14 @@
 
 ## 功能特性
 - 学生
-  - 浏览实验室与设备、在线预约、查看与取消个人预约
+  - 浏览实验室与设备、在线预约、查看与取消个人预约（仅学生可发起）
   - AI 润色预约理由，提升通过率
 - 教师
   - 课程管理、班级管理（批量添加学生）
-  - 为课程创建实验室预约，统一管理教学资源
+  - 为课程创建实验室预约，统一管理教学资源（仅教师可操作）
 - 管理员（实验室管理员/系统管理员）
   - 实验室与设备管理、预约审核与调整
+  - 导入本学期教师课程清单，并按教师关联实验室与学生（管理员操作）
   - 预约规则配置（每日次数、最长时长、提前天数）
   - 开放规则与禁用时段（维护期、假期）管理
   - 违约与黑名单、审计日志、统计仪表板与数据导出
@@ -49,6 +60,12 @@
 - AI
   - 讯飞星火 Spark（HTTP + APIPassword），支持 Mock 模式
 
+## 运行前置
+- Node.js：建议 20 LTS 及以上
+- pnpm：建议 10.x（与锁文件一致）
+- MySQL：建议 8.0+
+- 可选：Docker / Docker Compose（用于容器化部署）
+
 ## 架构概览
 - 开发模式
   - 单进程集成：后端在开发环境自动挂载 Vite 中间件，提供 HMR 与前端资源
@@ -56,13 +73,13 @@
 - 生产模式
   - 前端构建产物输出至 `dist/public`，后端以 Node 进程提供静态资源与 API
 - 关键位置
-  - 开发服务器入口：[index.ts](file:///d:/workspace/A_bs/lab-reservation-system/server/_core/index.ts)
-  - Vite 集成与静态资源服务：[vite.ts](file:///d:/workspace/A_bs/lab-reservation-system/server/_core/vite.ts)
-  - tRPC 路由与权限：[routers.ts](file:///d:/workspace/A_bs/lab-reservation-system/server/routers.ts)
-  - 环境变量读取：[env.ts](file:///d:/workspace/A_bs/lab-reservation-system/server/_core/env.ts)
-  - 数据库表结构：[schema.ts](file:///d:/workspace/A_bs/lab-reservation-system/drizzle/schema.ts)
-  - 测试配置：[vitest.config.ts](file:///d:/workspace/A_bs/lab-reservation-system/vitest.config.ts)
-  - 构建配置：[vite.config.ts](file:///d:/workspace/A_bs/lab-reservation-system/vite.config.ts)
+  - 开发服务器入口：[server/_core/index.ts](server/_core/index.ts)
+  - Vite 集成与静态资源服务：[server/_core/vite.ts](server/_core/vite.ts)
+  - tRPC 路由与权限：[server/routers.ts](server/routers.ts)
+  - 环境变量读取：[server/_core/env.ts](server/_core/env.ts)
+  - 数据库表结构：[drizzle/schema.ts](drizzle/schema.ts)
+  - 测试配置：[vitest.config.ts](vitest.config.ts)
+  - 构建配置：[vite.config.ts](vite.config.ts)
 
 ## 目录结构
 ```
@@ -108,12 +125,24 @@ OWNER_OPEN_ID="your-admin-openid"  # 项目所有者（自动授予 sysAdmin）
 # 数据库
 DATABASE_URL="mysql://root:password@localhost:3306/lab_reservation_db"
 
-# OAuth（后端将代理到授权服务）
+# OAuth - Manus（Mock OAuth，开发测试用）
 OAUTH_SERVER_URL="http://localhost:4000"
 OAUTH_CLIENT_ID="local-client-id"
 MOCK_OAUTH_ENABLED="true"
 MOCK_OPEN_ID="qq-admin-openid"
 VITE_OAUTH_AUTHORIZE_URL="http://localhost:4000/oauth/authorize"
+
+# OAuth - GitHub（可选）
+# 从 https://github.com/settings/developers 创建 OAuth App
+# 回调地址: http://localhost:3000/api/oauth/github/callback
+GITHUB_CLIENT_ID=""
+GITHUB_CLIENT_SECRET=""
+
+# OAuth - QQ（可选）
+# 从 https://connect.qq.com/manage.html 创建应用
+# 回调地址: http://localhost:3000/api/oauth/qq/callback
+QQ_APP_ID=""
+QQ_APP_KEY=""
 
 # 前端
 VITE_APP_ID="lab-reservation-local"
@@ -129,6 +158,11 @@ BUILT_IN_FORGE_API_KEY=""
 XFYUN_API_PASSWORD=""          # 留空将使用 Mock 模式
 XFYUN_MODEL="4.0Ultra"         # lite | generalv3 | generalv3.5 | 4.0Ultra
 ```
+
+**OAuth 配置说明**：
+- 至少配置一种 OAuth 方式（Manus/GitHub/QQ）
+- 详细配置步骤见 [docs/OAUTH_SETUP.md](docs/OAUTH_SETUP.md)
+- 开发环境可只使用 Manus Mock OAuth
 
 ## 快速开始
 1. 安装依赖
@@ -158,12 +192,19 @@ XFYUN_MODEL="4.0Ultra"         # lite | generalv3 | generalv3.5 | 4.0Ultra
    登录流程将通过后端的 `/api/oauth/authorize` 代理到 Mock 服务。
 
 ## 认证与权限
+- **多 OAuth 登录支持**（P3-1 新增）
+  - GitHub OAuth：使用 GitHub 账号登录
+  - QQ OAuth：使用 QQ 账号登录
+  - 学校统一认证：预留接口，可对接学校 CAS/OAuth
+  - 账号绑定：支持绑定多个 OAuth 账号，使用任意账号登录
+  - 配置指南：见 [docs/OAUTH_SETUP.md](docs/OAUTH_SETUP.md)
 - Cookie 会话：后端在 OAuth 回调后设置 `app_session_id`（`JWT_SECRET` 签名）
 - 角色体系：`student`、`teacher`、`labAdmin`、`sysAdmin`
-- 前端拦截：tRPC 调用在未登录时重定向到登录页（见 [main.tsx](file:///d:/workspace/A_bs/lab-reservation-system/client/src/main.tsx)）
+- 动态权限：14 项权限代码，支持角色权限灵活配置
+- 前端拦截：tRPC 调用在未登录时重定向到登录页（见 [client/src/main.tsx](client/src/main.tsx)）
 
 ## API 概览
-- tRPC 路由聚合见 [routers.ts](file:///d:/workspace/A_bs/lab-reservation-system/server/routers.ts)
+- tRPC 路由聚合见 [server/routers.ts](server/routers.ts)
 - 主要分组
   - `auth`：登录态、退出
   - `user`：用户查询
@@ -179,7 +220,7 @@ XFYUN_MODEL="4.0Ultra"         # lite | generalv3 | generalv3.5 | 4.0Ultra
   - `course`/`courseReservation`：课程与课程预约
 
 ## 数据库设计概览
-- 核心表（详见 [schema.ts](file:///d:/workspace/A_bs/lab-reservation-system/drizzle/schema.ts)）
+- 核心表（详见 [drizzle/schema.ts](drizzle/schema.ts)）
   - `users`：用户（含角色枚举）
   - `lab_rooms`：实验室信息与状态
   - `lab_reservations`：预约记录（含状态、改签信息）
@@ -198,7 +239,7 @@ XFYUN_MODEL="4.0Ultra"         # lite | generalv3 | generalv3.5 | 4.0Ultra
   pnpm test
   ```
 - 范围：`server/**/*.test.ts`，包含冲突检测、统计计算、审批与违规则治理等
-- 配置：见 [vitest.config.ts](file:///d:/workspace/A_bs/lab-reservation-system/vitest.config.ts)
+- 配置：见 [vitest.config.ts](vitest.config.ts)
 
 ## 部署建议
 - 构建与启动
@@ -211,10 +252,24 @@ XFYUN_MODEL="4.0Ultra"         # lite | generalv3 | generalv3.5 | 4.0Ultra
 - 数据库：建议启用连接池与只读副本（如需）
 - 日志与审计：开启 `audit` 页面供运维检索关键操作
 
+## 静态托管部署（可选）
+- 说明：本项目默认全栈部署，前端构建输出为 `dist/public`，供后端 Node 服务直接托管。
+- 若需上传到纯静态主机（如 `public_html`），请使用静态专用构建命令：
+  ```bash
+  pnpm build:static
+  ```
+- 构建产物位于 `dist-static/`，结构如下：
+  ```text
+  dist-static/
+    index.html
+    assets/
+  ```
+- 上传时请将 `dist-static/` 下内容（`index.html` 与 `assets/`）上传到站点根目录。
+
 ## 常见问题
 - 无法登录或提示“请先登录”
   - 检查 `VITE_SERVER_ORIGIN` 与实际访问域一致
-  - 确认后端 OAuth 回调与 Cookie 设置正常（见 [cookies.ts](file:///d:/workspace/A_bs/lab-reservation-system/server/_core/cookies.ts)）
+  - 确认后端 OAuth 回调与 Cookie 设置正常（见 [server/_core/cookies.ts](server/_core/cookies.ts)）
 - 端口占用
   - 后端会从 `PORT=3000` 起自动查找可用端口，控制台会提示实际端口
 - 数据库连接失败

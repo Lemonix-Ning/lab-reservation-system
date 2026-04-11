@@ -1,5 +1,4 @@
 import { useAuth } from "@/_core/hooks/useAuth";
-import { useRole } from "@/contexts/RoleContext";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -16,7 +15,6 @@ import { Link, useLocation } from "wouter";
 
 export default function DeviceManage() {
   const { user } = useAuth();
-  const { isLabAdmin, isSysAdmin } = useRole();
   const [, setLocation] = useLocation();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -66,10 +64,7 @@ export default function DeviceManage() {
     },
   });
 
-  if (!isLabAdmin && !isSysAdmin) {
-    setLocation('/');
-    return null;
-  }
+  // 权限检查由后端API和菜单过滤处理
 
   const handleOpenDialog = (device?: any) => {
     if (device) {

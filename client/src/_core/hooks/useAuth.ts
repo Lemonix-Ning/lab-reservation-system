@@ -38,6 +38,8 @@ export function useAuth(options?: UseAuthOptions) {
     } finally {
       utils.auth.me.setData(undefined, null);
       await utils.auth.me.invalidate();
+      // 注销后重定向到登录页
+      window.location.href = getLoginUrl();
     }
   }, [logoutMutation, utils]);
 

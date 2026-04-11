@@ -81,22 +81,62 @@ export default function AuditLogPage() {
     string,
     { label: string; variant: "info" | "approved" | "rejected" | "pending" | "restricted"; icon: ElementType }
   > = {
+    // 预约相关
     reservation_create: { label: "创建预约", variant: "info", icon: Calendar },
     reservation_approve: { label: "审批通过", variant: "approved", icon: ShieldCheck },
     reservation_reject: { label: "拒绝预约", variant: "rejected", icon: ShieldAlert },
     reservation_cancel: { label: "取消预约", variant: "rejected", icon: X },
+    reservation_update: { label: "更新预约", variant: "pending", icon: Activity },
+    reservation_checkin: { label: "预约签到", variant: "approved", icon: CheckCircle2 },
+    reservation_checkout: { label: "预约签退", variant: "approved", icon: CheckCircle2 },
+    // 违约与黑名单
     violation_record: { label: "违约记录", variant: "rejected", icon: ShieldAlert },
     blacklist_add: { label: "加入黑名单", variant: "restricted", icon: Shield },
     blacklist_remove: { label: "移除黑名单", variant: "approved", icon: ShieldCheck },
-    config_update: { label: "系统配置", variant: "pending", icon: Activity },
+    auto_cancel_overdue: { label: "自动取消超期", variant: "rejected", icon: Clock },
+    // 课程相关
     course_create: { label: "创建课程", variant: "info", icon: Calendar },
     course_update: { label: "更新课程", variant: "pending", icon: Activity },
     course_delete: { label: "删除课程", variant: "rejected", icon: X },
-    course_student_add: { label: "添加学生", variant: "approved", icon: ShieldCheck },
+    course_student_add: { label: "课程添加学生", variant: "approved", icon: User },
+    course_student_remove: { label: "课程移除学生", variant: "rejected", icon: User },
     course_reservation_create: { label: "课程预约", variant: "info", icon: Calendar },
+    course_reservation_update: { label: "更新课程预约", variant: "pending", icon: Activity },
     course_reservation_cancel: { label: "取消课程预约", variant: "rejected", icon: ShieldAlert },
+    course_reservation_approve: { label: "课程预约通过", variant: "approved", icon: ShieldCheck },
+    course_reservation_reject: { label: "课程预约拒绝", variant: "rejected", icon: ShieldAlert },
+    // 班级相关
+    class_create: { label: "创建班级", variant: "info", icon: Calendar },
+    class_student_add: { label: "班级添加学生", variant: "approved", icon: User },
+    class_student_remove: { label: "班级移除学生", variant: "rejected", icon: User },
+    // 签到会话
+    checkin_session_start: { label: "开始签到", variant: "info", icon: CheckCircle2 },
+    checkin_session_close: { label: "结束签到", variant: "approved", icon: CheckCircle2 },
+    // 实验室与规则
     lab_update: { label: "更新实验室", variant: "pending", icon: Activity },
     rule_update: { label: "更新规则", variant: "pending", icon: Activity },
+    opening_rule_update: { label: "更新开放规则", variant: "pending", icon: Activity },
+    blocked_period_create: { label: "创建封闭时段", variant: "info", icon: Clock },
+    blocked_period_update: { label: "更新封闭时段", variant: "pending", icon: Clock },
+    // 地理围栏
+    geofence_create: { label: "创建围栏", variant: "info", icon: Globe },
+    geofence_update: { label: "更新围栏", variant: "pending", icon: Globe },
+    geofence_delete: { label: "删除围栏", variant: "rejected", icon: Globe },
+    // 用户与权限
+    user_role_update: { label: "更新用户角色", variant: "pending", icon: User },
+    user_account_delete: { label: "删除账号", variant: "rejected", icon: X },
+    oauth_unbind: { label: "解绑OAuth", variant: "pending", icon: Activity },
+    permission_update: { label: "更新权限", variant: "pending", icon: Shield },
+    // 白名单
+    whitelist_add: { label: "添加白名单", variant: "approved", icon: ShieldCheck },
+    whitelist_batch_add: { label: "批量添加白名单", variant: "approved", icon: ShieldCheck },
+    whitelist_delete: { label: "删除白名单", variant: "rejected", icon: ShieldAlert },
+    // 角色申请
+    role_request_approve: { label: "角色申请通过", variant: "approved", icon: ShieldCheck },
+    role_request_reject: { label: "角色申请拒绝", variant: "rejected", icon: ShieldAlert },
+    // 系统配置
+    config_update: { label: "系统配置", variant: "pending", icon: Activity },
+    approval_config_update: { label: "审批配置更新", variant: "pending", icon: Activity },
   };
 
   const stats = useMemo(
@@ -255,21 +295,20 @@ export default function AuditLogPage() {
                 <TableHead className="font-medium">操作类型</TableHead>
                 <TableHead className="font-medium">操作员</TableHead>
                 <TableHead className="font-medium">目标对象</TableHead>
-                <TableHead className="font-medium">IP来源</TableHead>
                 <TableHead className="font-medium text-right">详情</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody className="divide-y divide-slate-100 bg-white">
               {isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="px-6 py-12 text-center text-slate-500">
+                  <TableCell colSpan={5} className="px-6 py-12 text-center text-slate-500">
                     <RefreshCw className="h-8 w-8 mx-auto animate-spin mb-2 text-slate-300" />
                     加载数据中...
                   </TableCell>
                 </TableRow>
               ) : logs.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="px-6 py-12 text-center text-slate-500 bg-slate-50/30">
+                  <TableCell colSpan={5} className="px-6 py-12 text-center text-slate-500 bg-slate-50/30">
                     <div className="flex flex-col items-center justify-center">
                       <Shield className="h-10 w-10 text-slate-200 mb-2" />
                       <p className="text-sm">暂无相关日志记录</p>
@@ -283,7 +322,11 @@ export default function AuditLogPage() {
                 </TableRow>
               ) : (
                 logs.map((log: any) => {
-                  const typeInfo = operationTypeMap[log.operationType] || { label: log.operationType, variant: "info", icon: Activity };
+                  const typeInfo = operationTypeMap[log.operationType] || { 
+                    label: operationTypeMap[log.operationType]?.label || "未知操作", 
+                    variant: "info", 
+                    icon: Activity 
+                  };
                   const TypeIcon = typeInfo.icon;
                   const operatedAt = log.operatedAt ? new Date(log.operatedAt) : null;
 
@@ -318,14 +361,36 @@ export default function AuditLogPage() {
                       </TableCell>
                       <TableCell className="px-6 py-4 whitespace-nowrap">
                         <div className="flex flex-col">
-                          <span className="text-slate-900 font-medium">{log.targetType || "-"}</span>
-                          <span className="text-xs text-slate-400 font-mono">{log.targetId || "-"}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell className="px-6 py-4 whitespace-nowrap font-mono text-xs text-slate-500">
-                        <div className="flex items-center gap-1.5">
-                          <Globe className="h-3 w-3 text-slate-300" />
-                          {log.ipAddress || "-"}
+                          <span className="text-slate-900 font-medium">
+                            {({
+                              reservation: "预约",
+                              lab_geofence: "地理围栏",
+                              user: "用户",
+                              lab: "实验室",
+                              course: "课程",
+                              blacklist: "黑名单",
+                              violation: "违约",
+                              config: "配置",
+                              class: "班级",
+                              opening_rule: "开放规则",
+                              blocked_period: "封闭时段",
+                              approval_config: "审批配置",
+                              course_reservation: "课程预约",
+                              role: "角色",
+                              whitelist: "白名单",
+                              role_request: "角色申请",
+                            } as Record<string, string>)[log.targetType] || log.targetType || "-"}
+                          </span>
+                          <span className="text-xs text-slate-400">
+                            {log.targetId ? `编号: ${log.targetId}` : (
+                              log.operationType?.includes('batch') || 
+                              log.operationType?.includes('auto_cancel') ||
+                              log.operationType?.includes('permission_update') ||
+                              log.operationType?.includes('_create') && !log.targetId
+                                ? "批量/系统操作"
+                                : "系统级配置"
+                            )}
+                          </span>
                         </div>
                       </TableCell>
                       <TableCell className="px-6 py-4 whitespace-nowrap text-right">
@@ -385,7 +450,7 @@ export default function AuditLogPage() {
                   <div>
                     <span className="text-xs text-slate-500 block mb-1">操作类型</span>
                     <StatusBadge variant={operationTypeMap[selectedLog.operationType]?.variant || "info"}>
-                      {operationTypeMap[selectedLog.operationType]?.label || selectedLog.operationType}
+                      {operationTypeMap[selectedLog.operationType]?.label || "未知操作"}
                     </StatusBadge>
                   </div>
                 </div>
@@ -406,8 +471,36 @@ export default function AuditLogPage() {
                   <div className="flex items-center justify-between py-2 border-b border-slate-100">
                     <span className="text-sm text-slate-500">目标对象</span>
                     <div className="text-right">
-                      <div className="text-sm font-medium text-slate-900 capitalize">{selectedLog.targetType || "-"}</div>
-                      <div className="text-xs text-slate-400 font-mono">{selectedLog.targetId || "-"}</div>
+                      <div className="text-sm font-medium text-slate-900">
+                        {({
+                          reservation: "预约",
+                          lab_geofence: "地理围栏",
+                          user: "用户",
+                          lab: "实验室",
+                          course: "课程",
+                          blacklist: "黑名单",
+                          violation: "违约",
+                          config: "配置",
+                          class: "班级",
+                          opening_rule: "开放规则",
+                          blocked_period: "封闭时段",
+                          approval_config: "审批配置",
+                          course_reservation: "课程预约",
+                          role: "角色",
+                          whitelist: "白名单",
+                          role_request: "角色申请",
+                        } as Record<string, string>)[selectedLog.targetType] || selectedLog.targetType || "-"}
+                      </div>
+                      <div className="text-xs text-slate-400">
+                        {selectedLog.targetId ? `编号: ${selectedLog.targetId}` : (
+                          selectedLog.operationType?.includes('batch') || 
+                          selectedLog.operationType?.includes('auto_cancel') ||
+                          selectedLog.operationType?.includes('permission_update') ||
+                          selectedLog.operationType?.includes('_create') && !selectedLog.targetId
+                            ? "批量/系统操作"
+                            : "系统级配置"
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -425,7 +518,7 @@ export default function AuditLogPage() {
                     </span>
                   </div>
                   <div className="p-3">
-                    <span className="text-xs text-slate-500 block mb-1">User Agent</span>
+                    <span className="text-xs text-slate-500 block mb-1">浏览器信息</span>
                     <p className="text-xs text-slate-700 font-mono break-all leading-relaxed">
                       {selectedLog.userAgent || "-"}
                     </p>
@@ -436,15 +529,46 @@ export default function AuditLogPage() {
               {safeDetails && (
                 <section className="space-y-4">
                   <h3 className="text-sm font-semibold text-slate-900 uppercase tracking-wider flex items-center gap-2">
-                    <FileText className="h-4 w-4 text-slate-400" /> 原始数据快照
+                    <FileText className="h-4 w-4 text-slate-400" /> 操作详情
                   </h3>
-                  <div className="relative">
-                    <div className="absolute top-2 right-2 text-[10px] text-slate-400 font-mono">JSON</div>
-                    <pre className="bg-slate-900 text-slate-50 p-4 rounded-lg text-xs overflow-x-auto font-mono leading-relaxed border border-slate-800 shadow-inner">
-                      {typeof safeDetails === "string"
-                        ? safeDetails
-                        : JSON.stringify(safeDetails, null, 2)}
-                    </pre>
+                  <div className="bg-slate-50 rounded-lg border border-slate-100 divide-y divide-slate-100">
+                    {(() => {
+                      const details = typeof safeDetails === 'string' ? {} : safeDetails;
+                      const fieldLabels: Record<string, string> = {
+                        method: '签到方式',
+                        methodLabel: '签到方式说明',
+                        hasLocation: '是否有位置信息',
+                        locationVerified: '位置已验证',
+                        latitude: '纬度',
+                        longitude: '经度',
+                        deviceInfo: '设备信息',
+                        labId: '实验室编号',
+                        title: '标题',
+                        reason: '理由',
+                        startTime: '开始时间',
+                        endTime: '结束时间',
+                        peopleCount: '人数',
+                        status: '状态',
+                        rejectReason: '拒绝原因',
+                        name: '名称',
+                        radius: '围栏半径(米)',
+                      };
+                      const valueLabels: Record<string, Record<string, string>> = {
+                        method: { qrcode: '扫码签到', geofence: '位置签到', manual: '手动签到' },
+                        hasLocation: { true: '是', false: '否' },
+                        locationVerified: { true: '是', false: '否' },
+                      };
+                      return Object.entries(details).map(([key, value]) => (
+                        <div key={key} className="p-3 flex justify-between items-start">
+                          <span className="text-xs text-slate-500">{fieldLabels[key] || key}</span>
+                          <span className="text-xs text-slate-800 text-right max-w-[60%] break-all">
+                            {valueLabels[key]?.[String(value)] || 
+                             (typeof value === 'boolean' ? (value ? '是' : '否') : 
+                              (typeof value === 'object' ? JSON.stringify(value) : String(value ?? '-')))}
+                          </span>
+                        </div>
+                      ));
+                    })()}
                   </div>
                 </section>
               )}

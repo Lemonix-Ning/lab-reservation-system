@@ -1,6 +1,7 @@
-import { and, desc, eq, gte, lte, or, sql, lt, gt, ne, isNull } from "drizzle-orm";
+import { and, desc, eq, gte, lte, or, sql, lt, gt, ne, isNull, isNotNull, asc, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertLabReservation, InsertLabRoom, InsertLabReserveRule, InsertUser, InsertLabDevice, InsertNotification, labReservations, labRooms, labReserveRules, users, labDevices, notifications, approvalConfigs, approvalHistories, violationRecords, blacklist, auditLogs, InsertApprovalConfig, InsertApprovalHistory, InsertViolationRecord, InsertBlacklist, InsertAuditLog, courses, courseReservations, courseStudents, openingRules, blockedPeriods, InsertCourse, InsertCourseReservation, InsertCourseStudent, InsertOpeningRule, InsertBlockedPeriod, classes, classStudents, InsertClass, InsertClassStudent } from "../drizzle/schema";
+import mysql from "mysql2";
+import { InsertLabReservation, InsertLabRoom, InsertLabReserveRule, InsertUser, InsertLabDevice, InsertNotification, labReservations, labRooms, labReserveRules, users, labDevices, notifications, approvalConfigs, approvalHistories, violationRecords, blacklist, auditLogs, InsertApprovalConfig, InsertApprovalHistory, InsertViolationRecord, InsertBlacklist, InsertAuditLog, courses, courseReservations, courseStudents, openingRules, blockedPeriods, InsertCourse, InsertCourseReservation, InsertCourseStudent, InsertOpeningRule, InsertBlockedPeriod, classes, classStudents, InsertClass, InsertClassStudent, labGeofences, InsertLabGeofence, periodTimeMapping, semesterConfigs, courseSchedules, checkinSessions, courseAttendances, InsertPeriodTimeMapping, InsertSemesterConfig, InsertCourseSchedule, InsertCheckinSession, InsertCourseAttendance, rolePermissions, InsertRolePermission, userRoleWhitelist, roleUpgradeRequests } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -9,13 +10,181 @@ let _db: ReturnType<typeof drizzle> | null = null;
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
-      _db = drizzle(process.env.DATABASE_URL);
+      const base = process.env.DATABASE_URL;
+      const url = base!.includes("?") ? `${base}&timezone=Z` : `${base}?timezone=Z`;
+      const pool = mysql.createPool(url);
+      _db = drizzle(pool);
     } catch (error) {
       console.warn("[Database] Failed to connect:", error);
       _db = null;
     }
   }
   return _db;
+}
+
+function toRad(v: number) {
+  return (v * Math.PI) / 180;
+}
+
+export async function getLabGeofence(labId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const rows = await db
+    .select()
+    .from(labGeofences)
+    .where(and(eq(labGeofences.labId, labId), eq(labGeofences.status, "enabled")))
+    .orderBy(desc(labGeofences.updatedAt))
+    .limit(1);
+  return rows[0];
+}
+
+export async function listLabGeofences(labId?: number) {
+  const db = await getDb();
+  if (!db) return [];
+  if (labId === undefined) {
+    return await db.select().from(labGeofences).orderBy(desc(labGeofences.updatedAt));
+  }
+  return await db.select().from(labGeofences).where(eq(labGeofences.labId, labId)).orderBy(desc(labGeofences.updatedAt));
+}
+
+export async function createLabGeofence(geo: InsertLabGeofence) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(labGeofences).values(geo);
+}
+
+export async function updateLabGeofence(id: number, geo: Partial<InsertLabGeofence>) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(labGeofences).set(geo).where(eq(labGeofences.id, id));
+}
+
+export async function deleteLabGeofence(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(labGeofences).where(eq(labGeofences.id, id));
+}
+
+export function calculateDistance(a: { lat: number; lng: number }, b: { lat: number; lng: number }) {
+  const R = 6371000;
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const lat1 = toRad(a.lat);
+  const lat2 = toRad(b.lat);
+  const sinDLat = Math.sin(dLat / 2);
+  const sinDLng = Math.sin(dLng / 2);
+  const c =
+    2 *
+    Math.asin(
+      Math.sqrt(sinDLat * sinDLat + Math.cos(lat1) * Math.cos(lat2) * sinDLng * sinDLng)
+    );
+  return R * c;
+}
+
+export async function checkinReservation(reservationId: number, params: { method: 'qrcode' | 'geofence' | 'manual'; latitude?: number; longitude?: number; deviceInfo?: string }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const reservation = await getReservationById(reservationId);
+  if (!reservation) throw new Error("Reservation not found");
+  if (reservation.status !== "approved") {
+    return { success: false, reason: "预约状态不可签到" as const };
+  }
+  const now = new Date();
+  const windowStart = new Date(reservation.startTime.getTime() - 15 * 60 * 1000);
+  
+  if (now < windowStart || now > reservation.endTime) {
+    return { success: false, reason: "不在签到时间窗口内" as const };
+  }
+  if (reservation.checkinTime) {
+    return { success: false, reason: "已签到" as const };
+  }
+  
+  // 确定最终签到方式
+  let finalMethod = params.method;
+  
+  if (params.method === "geofence") {
+    if (params.latitude === undefined || params.longitude === undefined) {
+      // 没有位置信息，降级为手动签到
+      finalMethod = "manual";
+    } else {
+      const gf = await getLabGeofence(reservation.labId);
+      if (!gf) {
+        // 未配置围栏，降级为手动签到（但保留位置信息）
+        finalMethod = "manual";
+      } else {
+        const d = calculateDistance(
+          { lat: params.latitude, lng: params.longitude },
+          { lat: Number(gf.latitude), lng: Number(gf.longitude) }
+        );
+        if (d > gf.radius) {
+          return { success: false, reason: `超出围栏范围（距离${Math.round(d)}米，允许${gf.radius}米）` as const };
+        }
+        // 位置验证通过，使用 geofence 方式
+      }
+    }
+  }
+  
+  await db
+    .update(labReservations)
+    .set({
+      checkinTime: now,
+      checkinMethod: finalMethod,
+      checkinLatitude: params.latitude === undefined ? null : String(params.latitude),
+      checkinLongitude: params.longitude === undefined ? null : String(params.longitude),
+      checkinDeviceInfo: params.deviceInfo,
+      updatedAt: now,
+    })
+    .where(eq(labReservations.id, reservationId));
+  return { success: true as const, method: finalMethod };
+}
+
+export async function checkoutReservation(reservationId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const reservation = await getReservationById(reservationId);
+  if (!reservation) throw new Error("Reservation not found");
+  const now = new Date();
+  if (!reservation.checkinTime) {
+    return { success: false, reason: "未签到" as const };
+  }
+  if (reservation.checkoutTime) {
+    return { success: false, reason: "已签退" as const };
+  }
+  if (now < reservation.startTime) {
+    return { success: false, reason: "未到预约开始时间" as const };
+  }
+
+  // 检查是否超时签退（超过预约结束时间30分钟）
+  const endTime = new Date(reservation.endTime);
+  const timeoutThreshold = 30 * 60 * 1000; // 30分钟
+  const isTimeout = now.getTime() > (endTime.getTime() + timeoutThreshold);
+
+  await db
+    .update(labReservations)
+    .set({
+      checkoutTime: now,
+      status: reservation.status === "approved" ? "completed" : reservation.status,
+      updatedAt: now,
+    })
+    .where(eq(labReservations.id, reservationId));
+
+  // 如果超时签退，自动记录违约
+  if (isTimeout) {
+    try {
+      const overtimeMinutes = Math.floor((now.getTime() - endTime.getTime()) / (60 * 1000));
+      await recordViolation({
+        userId: reservation.userId,
+        reservationId: reservation.id,
+        violationType: "timeout_checkout",
+        description: `超时 ${overtimeMinutes} 分钟签退`,
+        points: 3,
+      });
+    } catch (err) {
+      console.error("Failed to record timeout violation:", err);
+    }
+  }
+
+  return { success: true as const, isTimeout };
 }
 
 export async function upsertUser(user: InsertUser): Promise<void> {
@@ -107,6 +276,198 @@ export async function getAllUsers() {
   return await db.select().from(users).orderBy(desc(users.createdAt));
 }
 
+export async function updateUserRole(id: number, role: 'student' | 'teacher' | 'labAdmin' | 'sysAdmin') {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(users).set({ role }).where(eq(users.id, id));
+}
+
+export async function updateUser(id: number, data: { name?: string; email?: string }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(users).set(data).where(eq(users.id, id));
+}
+
+export async function deleteUser(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(users).where(eq(users.id, id));
+}
+
+/**
+ * 注销用户账号（软删除或硬删除）
+ * 注意：这会删除用户的所有关联数据
+ */
+export async function deleteUserAccount(userId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  // 使用事务确保数据一致性
+  await db.transaction(async (tx) => {
+    // 1. 删除 OAuth 绑定
+    const { userOAuthBindings } = await import("../drizzle/schema");
+    await tx.delete(userOAuthBindings).where(eq(userOAuthBindings.userId, userId));
+
+    // 2. 删除用户的预约记录（可选：改为匿名化）
+    // 注意：这里直接删除，如果需要保留历史记录可以改为软删除
+    await tx.delete(labReservations).where(eq(labReservations.userId, userId));
+
+    // 3. 删除通知
+    await tx.delete(notifications).where(eq(notifications.userId, userId));
+
+    // 4. 删除违约记录
+    await tx.delete(violationRecords).where(eq(violationRecords.userId, userId));
+
+    // 5. 删除黑名单记录
+    await tx.delete(blacklist).where(eq(blacklist.userId, userId));
+
+    // 6. 删除课程学生关联（如果是学生）
+    await tx.delete(courseStudents).where(eq(courseStudents.studentId, userId));
+
+    // 7. 删除班级学生关联
+    await tx.delete(classStudents).where(eq(classStudents.studentId, userId));
+
+    // 8. 删除课程出勤记录
+    const { courseAttendances } = await import("../drizzle/schema");
+    await tx.delete(courseAttendances).where(eq(courseAttendances.studentId, userId));
+
+    // 9. 处理课程（如果是教师）
+    // 注意：不删除课程，而是将其标记为归档或转移给其他教师
+    const userCourses = await tx.select().from(courses).where(eq(courses.teacherId, userId));
+    if (userCourses.length > 0) {
+      // 将课程标记为归档
+      await tx.update(courses)
+        .set({ status: "archived" })
+        .where(eq(courses.teacherId, userId));
+    }
+
+    // 10. 处理签到会话（如果是教师）
+    const { checkinSessions } = await import("../drizzle/schema");
+    await tx.update(checkinSessions)
+      .set({ status: "closed" })
+      .where(eq(checkinSessions.teacherId, userId));
+
+    // 11. 审计日志保留（不删除，用于审计追踪）
+    // 注意：审计日志通常不应该删除，以保持审计追踪
+
+    // 12. 最后删除用户记录
+    await tx.delete(users).where(eq(users.id, userId));
+  });
+}
+
+// ============ OAuth 绑定管理 ============
+
+export async function getUserByOAuthBinding(provider: string, providerUserId: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+  
+  const { userOAuthBindings } = await import("../drizzle/schema");
+  
+  const result = await db
+    .select({ user: users })
+    .from(userOAuthBindings)
+    .innerJoin(users, eq(userOAuthBindings.userId, users.id))
+    .where(
+      and(
+        eq(userOAuthBindings.provider, provider as any),
+        eq(userOAuthBindings.providerUserId, providerUserId),
+        eq(userOAuthBindings.status, "active")
+      )
+    )
+    .limit(1);
+
+  return result.length > 0 ? result[0].user : undefined;
+}
+
+export async function createOAuthBinding(data: {
+  userId: number;
+  provider: string;
+  providerUserId: string;
+  providerEmail?: string | null;
+  providerName?: string | null;
+  accessToken?: string | null;
+  refreshToken?: string | null;
+  tokenExpiresAt?: Date | null;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  const { userOAuthBindings } = await import("../drizzle/schema");
+  
+  await db.insert(userOAuthBindings).values({
+    userId: data.userId,
+    provider: data.provider as any,
+    providerUserId: data.providerUserId,
+    providerEmail: data.providerEmail || null,
+    providerName: data.providerName || null,
+    accessToken: data.accessToken || null,
+    refreshToken: data.refreshToken || null,
+    tokenExpiresAt: data.tokenExpiresAt || null,
+    lastUsedAt: new Date(),
+  });
+}
+
+export async function updateOAuthBinding(
+  provider: string,
+  providerUserId: string,
+  data: {
+    accessToken?: string | null;
+    refreshToken?: string | null;
+    tokenExpiresAt?: Date | null;
+    lastUsedAt?: Date;
+  }
+) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  const { userOAuthBindings } = await import("../drizzle/schema");
+  
+  await db
+    .update(userOAuthBindings)
+    .set(data)
+    .where(
+      and(
+        eq(userOAuthBindings.provider, provider as any),
+        eq(userOAuthBindings.providerUserId, providerUserId)
+      )
+    );
+}
+
+export async function getUserOAuthBindings(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  
+  const { userOAuthBindings } = await import("../drizzle/schema");
+  
+  return await db
+    .select()
+    .from(userOAuthBindings)
+    .where(
+      and(
+        eq(userOAuthBindings.userId, userId),
+        eq(userOAuthBindings.status, "active")
+      )
+    )
+    .orderBy(desc(userOAuthBindings.lastUsedAt));
+}
+
+export async function unbindOAuth(userId: number, provider: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  const { userOAuthBindings } = await import("../drizzle/schema");
+  
+  await db
+    .update(userOAuthBindings)
+    .set({ status: "unbound" })
+    .where(
+      and(
+        eq(userOAuthBindings.userId, userId),
+        eq(userOAuthBindings.provider, provider as any)
+      )
+    );
+}
+
 // ============ 实验室管理 ============
 
 export async function getAllLabRooms() {
@@ -119,6 +480,13 @@ export async function getLabRoomById(id: number) {
   const db = await getDb();
   if (!db) return undefined;
   const result = await db.select().from(labRooms).where(eq(labRooms.id, id)).limit(1);
+  return result.length > 0 ? result[0] : undefined;
+}
+
+export async function getLabRoomByNo(roomNo: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(labRooms).where(eq(labRooms.roomNo, roomNo)).limit(1);
   return result.length > 0 ? result[0] : undefined;
 }
 
@@ -191,8 +559,13 @@ export async function getReservationsPaged(opts: { page?: number; pageSize?: num
     whereClauses.push(eq(labReservations.labId, opts.labId));
   }
   if (opts.q && opts.q.trim()) {
-    const q = `%${opts.q.trim()}%`;
-    whereClauses.push(sql`(${labReservations.title} LIKE ${q} OR ${labReservations.reason} LIKE ${q})`);
+    const qRaw = opts.q.trim();
+    if (qRaw.length >= 3) {
+      whereClauses.push(sql`MATCH(${labReservations.title}, ${labReservations.reason}) AGAINST (${qRaw} IN NATURAL LANGUAGE MODE)`);
+    } else {
+      const q = `%${qRaw}%`;
+      whereClauses.push(sql`(${labReservations.title} LIKE ${q} OR ${labReservations.reason} LIKE ${q})`);
+    }
   }
 
   const totalRes = await db.select({ count: sql<number>`COUNT(*)`.as('count') })
@@ -1480,6 +1853,34 @@ export async function getCourseById(id: number) {
   return result.length > 0 ? result[0] : undefined;
 }
 
+export async function getCourseByNo(courseNo: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(courses).where(eq(courses.courseNo, courseNo)).limit(1);
+  return result.length > 0 ? result[0] : undefined;
+}
+
+export async function updateCourse(id: number, data: {
+  courseNo?: string;
+  name?: string;
+  description?: string | null;
+  semester?: string;
+  status?: 'active' | 'archived';
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(courses).set(data).where(eq(courses.id, id));
+}
+
+export async function deleteCourse(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  // 先删除相关的课程学生关联
+  await db.delete(courseStudents).where(eq(courseStudents.courseId, id));
+  // 删除课程
+  await db.delete(courses).where(eq(courses.id, id));
+}
+
 export async function getCoursesByTeacherId(teacherId: number) {
   const db = await getDb();
   if (!db) return [];
@@ -1521,18 +1922,6 @@ export async function getAllCourses() {
     .leftJoin(courseStudents, eq(courses.id, courseStudents.courseId))
     .groupBy(courses.id)
     .orderBy(desc(courses.createdAt));
-}
-
-export async function updateCourse(id: number, course: Partial<InsertCourse>) {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  await db.update(courses).set(course).where(eq(courses.id, id));
-}
-
-export async function deleteCourse(id: number) {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  await db.delete(courses).where(eq(courses.id, id));
 }
 
 // ============ 课程预约管理（Phase 4 P1）============
@@ -1588,6 +1977,69 @@ export async function updateCourseReservation(id: number, reservation: Partial<I
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   await db.update(courseReservations).set(reservation).where(eq(courseReservations.id, id));
+}
+
+/**
+ * 获取待审批的课程预约
+ */
+export async function getPendingCourseReservations(labId?: number) {
+  const db = await getDb();
+  if (!db) return [];
+  
+  const conditions = [eq(courseReservations.status, 'pending')];
+  if (labId) {
+    conditions.push(eq(courseReservations.labId, labId));
+  }
+  
+  return await db
+    .select({
+      id: courseReservations.id,
+      courseId: courseReservations.courseId,
+      courseName: courses.name,
+      courseNo: courses.courseNo,
+      teacherId: courses.teacherId,
+      teacherName: users.name,
+      labId: courseReservations.labId,
+      labName: labRooms.name,
+      title: courseReservations.title,
+      reason: courseReservations.reason,
+      startTime: courseReservations.startTime,
+      endTime: courseReservations.endTime,
+      status: courseReservations.status,
+      createdAt: courseReservations.createdAt,
+    })
+    .from(courseReservations)
+    .leftJoin(courses, eq(courseReservations.courseId, courses.id))
+    .leftJoin(users, eq(courses.teacherId, users.id))
+    .leftJoin(labRooms, eq(courseReservations.labId, labRooms.id))
+    .where(and(...conditions))
+    .orderBy(desc(courseReservations.createdAt));
+}
+
+/**
+ * 审批通过课程预约
+ */
+export async function approveCourseReservation(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not connected");
+  
+  await db.update(courseReservations).set({
+    status: 'approved',
+    approveTime: new Date(),
+  }).where(eq(courseReservations.id, id));
+}
+
+/**
+ * 拒绝课程预约
+ */
+export async function rejectCourseReservation(id: number, reason?: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not connected");
+  
+  await db.update(courseReservations).set({
+    status: 'rejected',
+    rejectReason: reason || null,
+  }).where(eq(courseReservations.id, id));
 }
 
 // ============ 课程学生管理（Phase 4 P1）============
@@ -1755,12 +2207,7 @@ export async function getActiveBlockedPeriods(date: Date, labId?: number, device
   
   if (labId !== undefined) {
     // 检查实验室特定禁用或全局禁用（labId为NULL）
-    conditions.push(
-      or(
-        eq(blockedPeriods.labId, labId),
-        sql`${blockedPeriods.labId} IS NULL`
-      )
-    );
+    conditions.push(sql`(${blockedPeriods.labId} = ${labId} OR ${blockedPeriods.labId} IS NULL)`);
   }
   if (deviceId !== undefined) conditions.push(eq(blockedPeriods.deviceId, deviceId));
   
@@ -1788,12 +2235,7 @@ export async function getOverlappingBlockedPeriods(
   
   if (labId !== undefined) {
     // 检查实验室特定禁用或全局禁用（labId为NULL）
-    conditions.push(
-      or(
-        eq(blockedPeriods.labId, labId),
-        sql`${blockedPeriods.labId} IS NULL`
-      )
-    );
+    conditions.push(sql`(${blockedPeriods.labId} = ${labId} OR ${blockedPeriods.labId} IS NULL)`);
   }
   if (deviceId !== undefined) conditions.push(eq(blockedPeriods.deviceId, deviceId));
   
@@ -1951,7 +2393,7 @@ export async function autoCancelOverdueReservations() {
             reservationId: reservation.id,
             violationType: "no_show",
             description: `未按时签到，系统于 ${now.toISOString()} 自动取消预约`,
-            points: 1,
+            points: 5,
           });
         } catch (err) {
           // 如果违约记录失败，只记录日志，不中断流程
@@ -1966,6 +2408,76 @@ export async function autoCancelOverdueReservations() {
   } catch (error) {
     console.error("Error in autoCancelOverdueReservations:", error);
     return { cancelledCount: 0 };
+  }
+}
+
+/**
+ * 自动检测超时未签退的预约并记录违约
+ * 扫描所有已签到但未签退的预约，检查是否超过结束时间30分钟
+ */
+export async function autoDetectTimeoutCheckout() {
+  const db = await getDb();
+  if (!db) return { violationCount: 0 };
+
+  try {
+    const now = new Date();
+    const timeoutThreshold = 30 * 60 * 1000; // 30分钟
+    
+    // 获取所有已签到但未签退的预约
+    const checkedInReservations = await db
+      .select()
+      .from(labReservations)
+      .where(
+        and(
+          isNotNull(labReservations.checkinTime),
+          isNull(labReservations.checkoutTime),
+          eq(labReservations.status, "approved")
+        )
+      );
+
+    let violationCount = 0;
+
+    for (const reservation of checkedInReservations) {
+      const endTime = new Date(reservation.endTime);
+      const timeoutDeadline = new Date(endTime.getTime() + timeoutThreshold);
+
+      // 如果当前时间已超过超时截止时间
+      if (now > timeoutDeadline) {
+        // 检查是否已经记录过该预约的超时违约
+        const existingViolation = await db
+          .select()
+          .from(violationRecords)
+          .where(
+            and(
+              eq(violationRecords.reservationId, reservation.id),
+              eq(violationRecords.violationType, "timeout_checkout")
+            )
+          )
+          .limit(1);
+
+        if (existingViolation.length === 0) {
+          // 记录违约
+          try {
+            const overtimeMinutes = Math.floor((now.getTime() - endTime.getTime()) / (60 * 1000));
+            await recordViolation({
+              userId: reservation.userId,
+              reservationId: reservation.id,
+              violationType: "timeout_checkout",
+              description: `超时 ${overtimeMinutes} 分钟未签退，系统自动记录`,
+              points: 3,
+            });
+            violationCount++;
+          } catch (err) {
+            console.error("Failed to record timeout violation:", err);
+          }
+        }
+      }
+    }
+
+    return { violationCount };
+  } catch (error) {
+    console.error("Error in autoDetectTimeoutCheckout:", error);
+    return { violationCount: 0 };
   }
 }
 
@@ -2454,3 +2966,1370 @@ export async function getReservationDetails(reservationId: number) {
     return undefined;
   }
 }
+
+// ============ 课堂签到相关方法 ============
+
+/**
+ * 获取所有节次时间映射
+ */
+export async function getPeriodTimeMapping() {
+  const db = await getDb();
+  if (!db) return [];
+  return await db.select().from(periodTimeMapping).orderBy(periodTimeMapping.periodNo);
+}
+
+/**
+ * 创建节次时间映射（幂等）
+ */
+export async function createPeriodTimeMapping(data: InsertPeriodTimeMapping) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not connected");
+  const [result] = await db.insert(periodTimeMapping).values(data);
+  return result.insertId;
+}
+
+/**
+ * 更新节次时间映射
+ */
+export async function updatePeriodTimeMapping(id: number, data: Partial<InsertPeriodTimeMapping>) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not connected");
+  await db.update(periodTimeMapping).set(data).where(eq(periodTimeMapping.id, id));
+}
+
+/**
+ * 删除节次时间映射
+ */
+export async function deletePeriodTimeMapping(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not connected");
+  await db.delete(periodTimeMapping).where(eq(periodTimeMapping.id, id));
+}
+
+/**
+ * 获取当前学期配置
+ */
+export async function getCurrentSemester() {
+  const db = await getDb();
+  if (!db) return null;
+  const [semester] = await db
+    .select()
+    .from(semesterConfigs)
+    .where(eq(semesterConfigs.isCurrent, 1))
+    .limit(1);
+  return semester || null;
+}
+
+/**
+ * 获取所有学期配置
+ */
+export async function getAllSemesters() {
+  const db = await getDb();
+  if (!db) return [];
+  return await db.select().from(semesterConfigs).orderBy(desc(semesterConfigs.startDate));
+}
+
+/**
+ * 创建签到会话
+ */
+export async function createCheckinSession(session: InsertCheckinSession) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not connected");
+  const [result] = await db.insert(checkinSessions).values(session);
+  return result.insertId;
+}
+
+/**
+ * 获取签到会话详情
+ */
+export async function getCheckinSessionById(sessionId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const [session] = await db
+    .select()
+    .from(checkinSessions)
+    .where(eq(checkinSessions.id, sessionId))
+    .limit(1);
+  return session || null;
+}
+
+/**
+ * 获取课程的活跃签到会话
+ */
+export async function getActiveCheckinSession(courseId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const [session] = await db
+    .select()
+    .from(checkinSessions)
+    .where(and(
+      eq(checkinSessions.courseId, courseId),
+      eq(checkinSessions.status, 'active')
+    ))
+    .orderBy(desc(checkinSessions.startedAt))
+    .limit(1);
+  return session || null;
+}
+
+/**
+ * 根据二维码令牌获取签到会话
+ */
+export async function getCheckinSessionByToken(token: string) {
+  const db = await getDb();
+  if (!db) return null;
+  const [session] = await db
+    .select()
+    .from(checkinSessions)
+    .where(and(
+      eq(checkinSessions.qrcodeToken, token),
+      eq(checkinSessions.status, 'active')
+    ))
+    .limit(1);
+  return session || null;
+}
+
+/**
+ * 更新签到会话
+ */
+export async function updateCheckinSession(sessionId: number, data: Partial<InsertCheckinSession>) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not connected");
+  await db.update(checkinSessions).set(data).where(eq(checkinSessions.id, sessionId));
+}
+
+/**
+ * 关闭签到会话
+ */
+export async function closeCheckinSession(sessionId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not connected");
+  
+  // 统计出勤人数
+  const stats = await db
+    .select({
+      status: courseAttendances.status,
+      count: sql<number>`count(*)`,
+    })
+    .from(courseAttendances)
+    .where(eq(courseAttendances.sessionId, sessionId))
+    .groupBy(courseAttendances.status);
+  
+  let presentCount = 0;
+  let lateCount = 0;
+  let absentCount = 0;
+  
+  for (const s of stats) {
+    if (s.status === 'present') presentCount = Number(s.count);
+    else if (s.status === 'late') lateCount = Number(s.count);
+    else if (s.status === 'absent') absentCount = Number(s.count);
+  }
+  
+  await db.update(checkinSessions).set({
+    status: 'closed',
+    closedAt: new Date(),
+    presentCount,
+    lateCount,
+    absentCount,
+  }).where(eq(checkinSessions.id, sessionId));
+}
+
+/**
+ * 初始化课程出勤记录（为所有学生创建缺勤记录）
+ */
+export async function initCourseAttendances(sessionId: number, courseId: number, sessionDate: Date) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not connected");
+  
+  // 获取课程所有学生
+  const students = await db
+    .select({ studentId: courseStudents.studentId })
+    .from(courseStudents)
+    .where(and(
+      eq(courseStudents.courseId, courseId),
+      eq(courseStudents.status, 'enrolled')
+    ));
+  
+  // 批量插入缺勤记录
+  if (students.length > 0) {
+    const values = students.map(s => ({
+      sessionId,
+      courseId,
+      studentId: s.studentId,
+      sessionDate,
+      status: 'absent' as const,
+    }));
+    
+    // 使用 INSERT IGNORE 避免重复
+    await db.insert(courseAttendances).values(values).onDuplicateKeyUpdate({
+      set: { sessionId: sql`VALUES(sessionId)` } // 保持原值不变
+    });
+  }
+  
+  return students.length;
+}
+
+/**
+ * 学生签到
+ */
+export async function studentCheckin(params: {
+  sessionId: number;
+  studentId: number;
+  method: 'qrcode' | 'geofence' | 'manual';
+  latitude?: number;
+  longitude?: number;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not connected");
+  
+  const session = await getCheckinSessionById(params.sessionId);
+  if (!session) throw new Error("签到会话不存在");
+  if (session.status !== 'active') throw new Error("签到已结束");
+  
+  // 计算是否迟到
+  const now = new Date();
+  const startedAt = new Date(session.startedAt!);
+  const lateThreshold = session.allowLateMinutes || 15;
+  const minutesLate = (now.getTime() - startedAt.getTime()) / 60000;
+  const status = minutesLate > lateThreshold ? 'late' : 'present';
+  
+  // 更新出勤记录
+  await db.update(courseAttendances).set({
+    checkinTime: now,
+    checkinMethod: params.method,
+    checkinLatitude: params.latitude?.toString(),
+    checkinLongitude: params.longitude?.toString(),
+    status,
+  }).where(and(
+    eq(courseAttendances.sessionId, params.sessionId),
+    eq(courseAttendances.studentId, params.studentId)
+  ));
+  
+  return { status, minutesLate: Math.floor(minutesLate) };
+}
+
+/**
+ * 教师手动更新学生出勤状态
+ */
+export async function updateAttendanceStatus(sessionId: number, studentId: number, status: 'present' | 'late' | 'absent' | 'leave', note?: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not connected");
+  
+  await db.update(courseAttendances).set({
+    status,
+    note,
+    checkinMethod: 'manual',
+    checkinTime: status === 'present' || status === 'late' ? new Date() : null,
+  }).where(and(
+    eq(courseAttendances.sessionId, sessionId),
+    eq(courseAttendances.studentId, studentId)
+  ));
+}
+
+/**
+ * 获取签到会话的出勤列表
+ */
+export async function getSessionAttendances(sessionId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  
+  return await db
+    .select({
+      id: courseAttendances.id,
+      studentId: courseAttendances.studentId,
+      studentName: users.name,
+      status: courseAttendances.status,
+      checkinTime: courseAttendances.checkinTime,
+      checkinMethod: courseAttendances.checkinMethod,
+      note: courseAttendances.note,
+    })
+    .from(courseAttendances)
+    .leftJoin(users, eq(courseAttendances.studentId, users.id))
+    .where(eq(courseAttendances.sessionId, sessionId))
+    .orderBy(courseAttendances.status, users.name);
+}
+
+/**
+ * 获取学生某课程的出勤记录
+ */
+export async function getStudentCourseAttendances(studentId: number, courseId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  
+  return await db
+    .select({
+      id: courseAttendances.id,
+      sessionId: courseAttendances.sessionId,
+      sessionDate: courseAttendances.sessionDate,
+      status: courseAttendances.status,
+      checkinTime: courseAttendances.checkinTime,
+      checkinMethod: courseAttendances.checkinMethod,
+      note: courseAttendances.note,
+      weekNo: checkinSessions.weekNo,
+      title: checkinSessions.title,
+    })
+    .from(courseAttendances)
+    .leftJoin(checkinSessions, eq(courseAttendances.sessionId, checkinSessions.id))
+    .where(and(
+      eq(courseAttendances.studentId, studentId),
+      eq(courseAttendances.courseId, courseId)
+    ))
+    .orderBy(desc(courseAttendances.sessionDate));
+}
+
+/**
+ * 获取课程出勤统计
+ */
+export async function getCourseAttendanceStats(courseId: number) {
+  const db = await getDb();
+  if (!db) return { sessions: 0, students: 0, avgRate: 0 };
+  
+  // 总签到会话数
+  const [sessionCount] = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(checkinSessions)
+    .where(eq(checkinSessions.courseId, courseId));
+  
+  // 学生出勤统计
+  const studentStats = await db
+    .select({
+      studentId: courseAttendances.studentId,
+      present: sql<number>`SUM(CASE WHEN status = 'present' THEN 1 ELSE 0 END)`,
+      late: sql<number>`SUM(CASE WHEN status = 'late' THEN 1 ELSE 0 END)`,
+      absent: sql<number>`SUM(CASE WHEN status = 'absent' THEN 1 ELSE 0 END)`,
+      leave: sql<number>`SUM(CASE WHEN status = 'leave' THEN 1 ELSE 0 END)`,
+      total: sql<number>`count(*)`,
+    })
+    .from(courseAttendances)
+    .where(eq(courseAttendances.courseId, courseId))
+    .groupBy(courseAttendances.studentId);
+  
+  const sessions = Number(sessionCount?.count || 0);
+  const students = studentStats.length;
+  
+  // 计算平均出勤率
+  let totalPresent = 0;
+  let totalRecords = 0;
+  for (const s of studentStats) {
+    totalPresent += Number(s.present) + Number(s.late) * 0.5; // 迟到算半次
+    totalRecords += Number(s.total);
+  }
+  const avgRate = totalRecords > 0 ? Math.round((totalPresent / totalRecords) * 100) : 0;
+  
+  return { sessions, students, avgRate, details: studentStats };
+}
+
+/**
+ * 获取教师的签到会话历史
+ */
+export async function getTeacherCheckinHistory(teacherId: number, courseId?: number) {
+  const db = await getDb();
+  if (!db) return [];
+  
+  const conditions = [eq(checkinSessions.teacherId, teacherId)];
+  if (courseId) conditions.push(eq(checkinSessions.courseId, courseId));
+  
+  return await db
+    .select({
+      id: checkinSessions.id,
+      courseId: checkinSessions.courseId,
+      courseName: courses.name,
+      labId: checkinSessions.labId,
+      labName: labRooms.name,
+      sessionDate: checkinSessions.sessionDate,
+      weekNo: checkinSessions.weekNo,
+      title: checkinSessions.title,
+      status: checkinSessions.status,
+      startedAt: checkinSessions.startedAt,
+      closedAt: checkinSessions.closedAt,
+      presentCount: checkinSessions.presentCount,
+      lateCount: checkinSessions.lateCount,
+      absentCount: checkinSessions.absentCount,
+    })
+    .from(checkinSessions)
+    .leftJoin(courses, eq(checkinSessions.courseId, courses.id))
+    .leftJoin(labRooms, eq(checkinSessions.labId, labRooms.id))
+    .where(and(...conditions))
+    .orderBy(desc(checkinSessions.sessionDate));
+}
+
+/**
+ * 获取学生当前可签到的课程
+ */
+export async function getStudentActiveCheckins(studentId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  
+  console.log('[DEBUG] getStudentActiveCheckins - studentId:', studentId);
+  
+  // 获取学生选的课程
+  const enrolledCourses = await db
+    .select({ courseId: courseStudents.courseId })
+    .from(courseStudents)
+    .where(and(
+      eq(courseStudents.studentId, studentId),
+      eq(courseStudents.status, 'enrolled')
+    ));
+  
+  console.log('[DEBUG] enrolledCourses:', enrolledCourses);
+  
+  if (enrolledCourses.length === 0) {
+    console.log('[DEBUG] 学生没有选修任何课程');
+    return [];
+  }
+  
+  const courseIds = enrolledCourses.map(c => c.courseId);
+  console.log('[DEBUG] courseIds:', courseIds);
+  
+  // 获取这些课程的活跃签到会话
+  const activeSessions = await db
+    .select({
+      sessionId: checkinSessions.id,
+      courseId: checkinSessions.courseId,
+      courseName: courses.name,
+      labId: checkinSessions.labId,
+      labName: labRooms.name,
+      title: checkinSessions.title,
+      startedAt: checkinSessions.startedAt,
+      allowLateMinutes: checkinSessions.allowLateMinutes,
+      useGeofence: checkinSessions.useGeofence,
+    })
+    .from(checkinSessions)
+    .leftJoin(courses, eq(checkinSessions.courseId, courses.id))
+    .leftJoin(labRooms, eq(checkinSessions.labId, labRooms.id))
+    .where(and(
+      eq(checkinSessions.status, 'active'),
+      inArray(checkinSessions.courseId, courseIds)
+    ));
+  
+  console.log('[DEBUG] activeSessions (before hasCheckedIn):', activeSessions);
+  
+  // 为每个会话检查学生是否已签到
+  const sessionsWithCheckin = await Promise.all(
+    activeSessions.map(async (session) => {
+      const [attendance] = await db
+        .select({ id: courseAttendances.id })
+        .from(courseAttendances)
+        .where(and(
+          eq(courseAttendances.sessionId, session.sessionId),
+          eq(courseAttendances.studentId, studentId),
+          or(
+            eq(courseAttendances.status, 'present'),
+            eq(courseAttendances.status, 'late')
+          )
+        ))
+        .limit(1);
+      
+      return {
+        ...session,
+        hasCheckedIn: attendance ? 1 : 0,
+      };
+    })
+  );
+  
+  console.log('[DEBUG] activeSessions:', sessionsWithCheckin);
+  
+  return sessionsWithCheckin;
+}
+
+// ===================== 课程排课管理 =====================
+
+/**
+ * 获取课程的排课安排
+ */
+export async function getCourseSchedules(courseId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  
+  return await db
+    .select({
+      id: courseSchedules.id,
+      courseId: courseSchedules.courseId,
+      labId: courseSchedules.labId,
+      labName: labRooms.name,
+      dayOfWeek: courseSchedules.dayOfWeek,
+      startPeriod: courseSchedules.startPeriod,
+      endPeriod: courseSchedules.endPeriod,
+      startWeek: courseSchedules.startWeek,
+      endWeek: courseSchedules.endWeek,
+      weekType: courseSchedules.weekType,
+    })
+    .from(courseSchedules)
+    .leftJoin(labRooms, eq(courseSchedules.labId, labRooms.id))
+    .where(eq(courseSchedules.courseId, courseId))
+    .orderBy(courseSchedules.dayOfWeek, courseSchedules.startPeriod);
+}
+
+/**
+ * 获取所有已审批通过的排课（课表视图用）
+ */
+export async function getAllApprovedSchedules(labId?: number) {
+  const db = await getDb();
+  if (!db) return [];
+  
+  const conditions = [eq(courseSchedules.status, 'approved')];
+  if (labId) {
+    conditions.push(eq(courseSchedules.labId, labId));
+  }
+  
+  return await db
+    .select({
+      id: courseSchedules.id,
+      courseId: courseSchedules.courseId,
+      courseName: courses.name,
+      courseNo: courses.courseNo,
+      teacherName: users.name,
+      labId: courseSchedules.labId,
+      labName: labRooms.name,
+      labRoomNo: labRooms.roomNo,
+      dayOfWeek: courseSchedules.dayOfWeek,
+      startPeriod: courseSchedules.startPeriod,
+      endPeriod: courseSchedules.endPeriod,
+      startWeek: courseSchedules.startWeek,
+      endWeek: courseSchedules.endWeek,
+      weekType: courseSchedules.weekType,
+    })
+    .from(courseSchedules)
+    .leftJoin(courses, eq(courseSchedules.courseId, courses.id))
+    .leftJoin(users, eq(courses.teacherId, users.id))
+    .leftJoin(labRooms, eq(courseSchedules.labId, labRooms.id))
+    .where(and(...conditions))
+    .orderBy(courseSchedules.dayOfWeek, courseSchedules.startPeriod);
+}
+
+/**
+ * 添加课程排课
+ */
+export async function addCourseSchedule(schedule: InsertCourseSchedule) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not connected");
+  const [result] = await db.insert(courseSchedules).values(schedule);
+  return result.insertId;
+}
+
+/**
+ * 更新课程排课
+ */
+export async function updateCourseSchedule(id: number, data: Partial<InsertCourseSchedule>) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not connected");
+  await db.update(courseSchedules).set(data).where(eq(courseSchedules.id, id));
+}
+
+/**
+ * 删除课程排课
+ */
+export async function deleteCourseSchedule(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not connected");
+  await db.delete(courseSchedules).where(eq(courseSchedules.id, id));
+}
+
+/**
+ * 获取单个排课信息
+ */
+export async function getScheduleById(id: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const [schedule] = await db.select().from(courseSchedules).where(eq(courseSchedules.id, id)).limit(1);
+  return schedule || null;
+}
+
+/**
+ * 获取待审批的排课列表
+ */
+export async function getPendingSchedules(labId?: number) {
+  const db = await getDb();
+  if (!db) return [];
+  
+  const conditions = [eq(courseSchedules.status, 'pending')];
+  if (labId) {
+    conditions.push(eq(courseSchedules.labId, labId));
+  }
+  
+  return await db
+    .select({
+      id: courseSchedules.id,
+      courseId: courseSchedules.courseId,
+      courseName: courses.name,
+      courseNo: courses.courseNo,
+      teacherId: courses.teacherId,
+      teacherName: users.name,
+      labId: courseSchedules.labId,
+      labName: labRooms.name,
+      dayOfWeek: courseSchedules.dayOfWeek,
+      startPeriod: courseSchedules.startPeriod,
+      endPeriod: courseSchedules.endPeriod,
+      startWeek: courseSchedules.startWeek,
+      endWeek: courseSchedules.endWeek,
+      weekType: courseSchedules.weekType,
+      status: courseSchedules.status,
+      createdAt: courseSchedules.createdAt,
+    })
+    .from(courseSchedules)
+    .leftJoin(courses, eq(courseSchedules.courseId, courses.id))
+    .leftJoin(users, eq(courses.teacherId, users.id))
+    .leftJoin(labRooms, eq(courseSchedules.labId, labRooms.id))
+    .where(and(...conditions))
+    .orderBy(desc(courseSchedules.createdAt));
+}
+
+/**
+ * 审批通过排课
+ */
+export async function approveSchedule(id: number, approverId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not connected");
+  
+  await db.update(courseSchedules).set({
+    status: 'approved',
+    approvedAt: new Date(),
+    approvedBy: approverId,
+  }).where(eq(courseSchedules.id, id));
+}
+
+/**
+ * 拒绝排课
+ */
+export async function rejectSchedule(id: number, reason?: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not connected");
+  
+  await db.update(courseSchedules).set({
+    status: 'rejected',
+    rejectReason: reason || null,
+  }).where(eq(courseSchedules.id, id));
+}
+
+/**
+ * 检查排课冲突
+ */
+export async function checkScheduleConflict(params: {
+  labId: number;
+  dayOfWeek: number;
+  startPeriod: number;
+  endPeriod: number;
+  startWeek: number;
+  endWeek: number;
+  weekType: 'all' | 'odd' | 'even';
+  excludeId?: number;
+}) {
+  const db = await getDb();
+  if (!db) return [];
+  
+  let query = db
+    .select({
+      id: courseSchedules.id,
+      courseName: courses.name,
+      dayOfWeek: courseSchedules.dayOfWeek,
+      startPeriod: courseSchedules.startPeriod,
+      endPeriod: courseSchedules.endPeriod,
+      startWeek: courseSchedules.startWeek,
+      endWeek: courseSchedules.endWeek,
+      weekType: courseSchedules.weekType,
+    })
+    .from(courseSchedules)
+    .leftJoin(courses, eq(courseSchedules.courseId, courses.id))
+    .where(and(
+      eq(courseSchedules.labId, params.labId),
+      eq(courseSchedules.dayOfWeek, params.dayOfWeek),
+      // 节次重叠
+      sql`${courseSchedules.startPeriod} <= ${params.endPeriod}`,
+      sql`${courseSchedules.endPeriod} >= ${params.startPeriod}`,
+      // 周次重叠
+      sql`${courseSchedules.startWeek} <= ${params.endWeek}`,
+      sql`${courseSchedules.endWeek} >= ${params.startWeek}`,
+      // 排除自身
+      params.excludeId ? sql`${courseSchedules.id} != ${params.excludeId}` : sql`1=1`
+    ));
+  
+  const conflicts = await query;
+  
+  // 进一步过滤周类型冲突
+  return conflicts.filter(c => {
+    if (params.weekType === 'all' || c.weekType === 'all') return true;
+    return params.weekType === c.weekType;
+  });
+}
+
+// ===================== 学期配置管理 =====================
+
+/**
+ * 创建学期配置
+ */
+export async function createSemester(data: InsertSemesterConfig) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not connected");
+  
+  // 如果设为当前学期，先取消其他学期的当前标记
+  if (data.isCurrent) {
+    await db.update(semesterConfigs).set({ isCurrent: 0 });
+  }
+  
+  const [result] = await db.insert(semesterConfigs).values(data);
+  return result.insertId;
+}
+
+/**
+ * 更新学期配置
+ */
+export async function updateSemester(id: number, data: Partial<InsertSemesterConfig>) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not connected");
+  
+  // 如果设为当前学期，先取消其他学期的当前标记
+  if (data.isCurrent) {
+    await db.update(semesterConfigs).set({ isCurrent: 0 });
+  }
+  
+  await db.update(semesterConfigs).set(data).where(eq(semesterConfigs.id, id));
+}
+
+/**
+ * 删除学期配置
+ */
+export async function deleteSemester(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not connected");
+  await db.delete(semesterConfigs).where(eq(semesterConfigs.id, id));
+}
+
+/**
+ * 根据学期配置计算第N周对应的日期范围
+ */
+export function calculateWeekDates(semesterStartDate: Date, weekNo: number): { start: Date; end: Date } {
+  const start = new Date(semesterStartDate);
+  start.setDate(start.getDate() + (weekNo - 1) * 7);
+  // 调整到周一
+  const dayOfWeek = start.getDay();
+  const daysToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+  start.setDate(start.getDate() + daysToMonday);
+  
+  const end = new Date(start);
+  end.setDate(end.getDate() + 6);
+  
+  return { start, end };
+}
+
+/**
+ * 计算给定日期是第几周
+ */
+export function calculateCurrentWeek(semesterStartDate: Date, targetDate: Date = new Date()): number {
+  const start = new Date(semesterStartDate);
+  // 调整到周一
+  const dayOfWeek = start.getDay();
+  const daysToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+  start.setDate(start.getDate() + daysToMonday);
+  
+  const diffTime = targetDate.getTime() - start.getTime();
+  const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+  return Math.floor(diffDays / 7) + 1;
+}
+
+// ===================== P0: 排课与预约冲突检测 =====================
+
+/**
+ * 将节次转换为具体时间
+ * @param date 日期
+ * @param periodNo 节次号
+ * @param isEnd 是否为结束时间
+ */
+export async function periodToTime(date: Date, periodNo: number, isEnd: boolean = false): Promise<Date> {
+  const periods = await getPeriodTimeMapping();
+  const period = periods.find(p => p.periodNo === periodNo);
+  if (!period) {
+    throw new Error(`节次 ${periodNo} 不存在`);
+  }
+  
+  const timeStr = isEnd ? period.endTime : period.startTime;
+  const [hours, minutes] = timeStr.split(':').map(Number);
+  
+  const result = new Date(date);
+  result.setHours(hours, minutes, 0, 0);
+  return result;
+}
+
+/**
+ * 检查个人预约是否与课程排课冲突
+ * 在创建/修改个人预约时调用
+ */
+export async function checkReservationConflictWithSchedule(
+  labId: number,
+  startTime: Date,
+  endTime: Date
+): Promise<{ hasConflict: boolean; conflicts: any[] }> {
+  const db = await getDb();
+  if (!db) return { hasConflict: false, conflicts: [] };
+  
+  // 获取当前学期
+  const semester = await getCurrentSemester();
+  if (!semester) {
+    // 无学期配置，不检查课程冲突
+    return { hasConflict: false, conflicts: [] };
+  }
+  
+  // 获取节次时间映射
+  const periods = await getPeriodTimeMapping();
+  if (periods.length === 0) {
+    return { hasConflict: false, conflicts: [] };
+  }
+  
+  // 计算预约日期对应的周次和星期
+  const weekNo = calculateCurrentWeek(semester.startDate, startTime);
+  const dayOfWeek = startTime.getDay() === 0 ? 7 : startTime.getDay(); // 转换为1-7
+  
+  // 如果周次超出学期范围，不检查
+  if (weekNo < 1 || weekNo > (semester.weekCount || 20)) {
+    return { hasConflict: false, conflicts: [] };
+  }
+  
+  // 提取预约的时间范围 (HH:MM)
+  const reserveStartHour = startTime.getHours();
+  const reserveStartMin = startTime.getMinutes();
+  const reserveEndHour = endTime.getHours();
+  const reserveEndMin = endTime.getMinutes();
+  
+  // 查询该实验室、该星期、该周次范围内的课程排课
+  const schedules = await db
+    .select({
+      id: courseSchedules.id,
+      courseId: courseSchedules.courseId,
+      courseName: courses.name,
+      startPeriod: courseSchedules.startPeriod,
+      endPeriod: courseSchedules.endPeriod,
+      startWeek: courseSchedules.startWeek,
+      endWeek: courseSchedules.endWeek,
+      weekType: courseSchedules.weekType,
+      status: courseSchedules.status,
+    })
+    .from(courseSchedules)
+    .leftJoin(courses, eq(courseSchedules.courseId, courses.id))
+    .where(and(
+      eq(courseSchedules.labId, labId),
+      eq(courseSchedules.dayOfWeek, dayOfWeek),
+      sql`${courseSchedules.startWeek} <= ${weekNo}`,
+      sql`${courseSchedules.endWeek} >= ${weekNo}`,
+      or(
+        eq(courseSchedules.status, 'pending'),
+        eq(courseSchedules.status, 'approved')
+      )
+    ));
+  
+  // 过滤周类型
+  const validSchedules = schedules.filter(s => {
+    if (s.weekType === 'all') return true;
+    if (s.weekType === 'odd' && weekNo % 2 === 1) return true;
+    if (s.weekType === 'even' && weekNo % 2 === 0) return true;
+    return false;
+  });
+  
+  // 检查时间重叠
+  const conflicts: any[] = [];
+  for (const schedule of validSchedules) {
+    // 获取课程的开始和结束时间
+    const scheduleStartPeriod = periods.find(p => p.periodNo === schedule.startPeriod);
+    const scheduleEndPeriod = periods.find(p => p.periodNo === schedule.endPeriod);
+    
+    if (!scheduleStartPeriod || !scheduleEndPeriod) continue;
+    
+    const [scheduleStartHour, scheduleStartMin] = scheduleStartPeriod.startTime.split(':').map(Number);
+    const [scheduleEndHour, scheduleEndMin] = scheduleEndPeriod.endTime.split(':').map(Number);
+    
+    // 转换为分钟进行比较
+    const reserveStartMins = reserveStartHour * 60 + reserveStartMin;
+    const reserveEndMins = reserveEndHour * 60 + reserveEndMin;
+    const scheduleStartMins = scheduleStartHour * 60 + scheduleStartMin;
+    const scheduleEndMins = scheduleEndHour * 60 + scheduleEndMin;
+    
+    // 检查时间重叠
+    if (!(reserveEndMins <= scheduleStartMins || reserveStartMins >= scheduleEndMins)) {
+      conflicts.push({
+        type: 'course_schedule',
+        scheduleId: schedule.id,
+        courseName: schedule.courseName,
+        startPeriod: schedule.startPeriod,
+        endPeriod: schedule.endPeriod,
+        timeRange: `${scheduleStartPeriod.startTime}-${scheduleEndPeriod.endTime}`,
+      });
+    }
+  }
+  
+  return { hasConflict: conflicts.length > 0, conflicts };
+}
+
+/**
+ * 检查课程排课是否与个人预约冲突
+ * 在添加/修改课程排课时调用
+ */
+export async function checkScheduleConflictWithReservation(params: {
+  labId: number;
+  dayOfWeek: number;
+  startPeriod: number;
+  endPeriod: number;
+  startWeek: number;
+  endWeek: number;
+  weekType: 'all' | 'odd' | 'even';
+}): Promise<{ hasConflict: boolean; conflicts: any[] }> {
+  const db = await getDb();
+  if (!db) return { hasConflict: false, conflicts: [] };
+  
+  // 获取当前学期
+  const semester = await getCurrentSemester();
+  if (!semester) {
+    return { hasConflict: false, conflicts: [] };
+  }
+  
+  // 获取节次时间映射
+  const periods = await getPeriodTimeMapping();
+  const startPeriodInfo = periods.find(p => p.periodNo === params.startPeriod);
+  const endPeriodInfo = periods.find(p => p.periodNo === params.endPeriod);
+  
+  if (!startPeriodInfo || !endPeriodInfo) {
+    return { hasConflict: false, conflicts: [] };
+  }
+  
+  const [scheduleStartHour, scheduleStartMin] = startPeriodInfo.startTime.split(':').map(Number);
+  const [scheduleEndHour, scheduleEndMin] = endPeriodInfo.endTime.split(':').map(Number);
+  
+  const conflicts: any[] = [];
+  
+  // 遍历每个周次检查冲突
+  for (let weekNo = params.startWeek; weekNo <= params.endWeek; weekNo++) {
+    // 检查周类型
+    if (params.weekType === 'odd' && weekNo % 2 === 0) continue;
+    if (params.weekType === 'even' && weekNo % 2 === 1) continue;
+    
+    // 计算该周对应的日期
+    const weekDates = calculateWeekDates(semester.startDate, weekNo);
+    const targetDate = new Date(weekDates.start);
+    targetDate.setDate(targetDate.getDate() + params.dayOfWeek - 1); // dayOfWeek 1=周一
+    
+    // 构造具体时间
+    const scheduleStart = new Date(targetDate);
+    scheduleStart.setHours(scheduleStartHour, scheduleStartMin, 0, 0);
+    
+    const scheduleEnd = new Date(targetDate);
+    scheduleEnd.setHours(scheduleEndHour, scheduleEndMin, 0, 0);
+    
+    // 查询冲突的预约
+    const conflictingReservations = await getConflictingReservations(
+      params.labId,
+      scheduleStart,
+      scheduleEnd
+    );
+    
+    for (const r of conflictingReservations) {
+      conflicts.push({
+        type: 'reservation',
+        reservationId: r.id,
+        title: r.title,
+        startTime: r.startTime,
+        endTime: r.endTime,
+        weekNo,
+      });
+    }
+  }
+  
+  return { hasConflict: conflicts.length > 0, conflicts };
+}
+
+// ============ 角色权限管理 ============
+
+// 所有可用权限定义
+export const ALL_PERMISSIONS = [
+  { code: 'lab:manage', name: '实验室管理', description: '创建、编辑、删除实验室' },
+  { code: 'device:manage', name: '设备管理', description: '管理实验室设备' },
+  { code: 'reservation:approve', name: '预约审批', description: '审批个人预约申请' },
+  { code: 'schedule:approve', name: '排课审批', description: '审批课程排课申请' },
+  { code: 'course:manage', name: '课程管理', description: '创建和管理课程' },
+  { code: 'rule:manage', name: '规则管理', description: '管理预约规则和开放规则' },
+  { code: 'user:manage', name: '用户管理', description: '管理用户角色' },
+  { code: 'statistics:view', name: '统计查看', description: '查看统计数据' },
+  { code: 'violation:manage', name: '违约管理', description: '管理违约记录和黑名单' },
+  { code: 'audit:view', name: '审计日志', description: '查看审计日志' },
+  { code: 'geofence:manage', name: '地理围栏管理', description: '管理实验室地理围栏' },
+  { code: 'class:manage', name: '班级管理', description: '管理班级信息' },
+  { code: 'checkin:teacher', name: '教师签到', description: '发起课堂签到' },
+  { code: 'system:settings', name: '系统设置', description: '系统配置管理' },
+] as const;
+
+export type PermissionCode = typeof ALL_PERMISSIONS[number]['code'];
+
+/**
+ * 获取角色的所有权限配置
+ */
+export async function getRolePermissions(role: string) {
+  const db = await getDb();
+  if (!db) return [];
+  return await db
+    .select()
+    .from(rolePermissions)
+    .where(eq(rolePermissions.role, role as any));
+}
+
+/**
+ * 获取所有角色的权限配置
+ */
+export async function getAllRolePermissions() {
+  const db = await getDb();
+  if (!db) return [];
+  return await db.select().from(rolePermissions).orderBy(rolePermissions.role, rolePermissions.permissionCode);
+}
+
+/**
+ * 检查用户是否有某项权限
+ */
+export async function hasPermission(userId: number, permissionCode: string): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return false;
+  
+  // 获取用户角色
+  const user = await getUserById(userId);
+  if (!user) return false;
+  
+  // sysAdmin 始终拥有所有权限
+  if (user.role === 'sysAdmin') return true;
+  
+  // 查询该角色是否有此权限
+  const result = await db
+    .select()
+    .from(rolePermissions)
+    .where(
+      and(
+        eq(rolePermissions.role, user.role as any),
+        eq(rolePermissions.permissionCode, permissionCode),
+        eq(rolePermissions.enabled, '1')
+      )
+    )
+    .limit(1);
+  
+  return result.length > 0;
+}
+
+/**
+ * 获取用户拥有的所有权限代码
+ */
+export async function getUserPermissions(userId: number): Promise<string[]> {
+  const db = await getDb();
+  if (!db) return [];
+  
+  const user = await getUserById(userId);
+  if (!user) return [];
+  
+  // sysAdmin 拥有所有权限
+  if (user.role === 'sysAdmin') {
+    return ALL_PERMISSIONS.map(p => p.code);
+  }
+  
+  const result = await db
+    .select({ permissionCode: rolePermissions.permissionCode })
+    .from(rolePermissions)
+    .where(
+      and(
+        eq(rolePermissions.role, user.role as any),
+        eq(rolePermissions.enabled, '1')
+      )
+    );
+  
+  return result.map(r => r.permissionCode);
+}
+
+/**
+ * 设置角色权限（批量更新）
+ */
+export async function setRolePermissions(
+  role: 'student' | 'teacher' | 'labAdmin',
+  permissions: { code: string; enabled: boolean }[]
+) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  for (const perm of permissions) {
+    // 先尝试更新，如果不存在则插入
+    const existing = await db
+      .select()
+      .from(rolePermissions)
+      .where(
+        and(
+          eq(rolePermissions.role, role),
+          eq(rolePermissions.permissionCode, perm.code)
+        )
+      )
+      .limit(1);
+    
+    if (existing.length > 0) {
+      await db
+        .update(rolePermissions)
+        .set({ enabled: perm.enabled ? '1' : '0' })
+        .where(eq(rolePermissions.id, existing[0].id));
+    } else {
+      await db.insert(rolePermissions).values({
+        role,
+        permissionCode: perm.code,
+        enabled: perm.enabled ? '1' : '0',
+      });
+    }
+  }
+}
+
+// ============ 角色白名单管理 ============
+
+/**
+ * 根据邮箱查询白名单
+ */
+export async function getWhitelistByEmail(email: string) {
+  const db = await getDb();
+  if (!db) return null;
+  
+  const result = await db
+    .select()
+    .from(userRoleWhitelist)
+    .where(eq(userRoleWhitelist.email, email.toLowerCase()))
+    .limit(1);
+  
+  return result[0] || null;
+}
+
+/**
+ * 获取所有白名单
+ */
+export async function getAllWhitelist() {
+  const db = await getDb();
+  if (!db) return [];
+  
+  return await db.select().from(userRoleWhitelist).orderBy(desc(userRoleWhitelist.createdAt));
+}
+
+/**
+ * 添加白名单
+ */
+export async function addWhitelist(data: {
+  email: string;
+  role: 'student' | 'teacher' | 'labAdmin' | 'sysAdmin';
+  name?: string;
+  department?: string;
+  employeeNo?: string;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  const result = await db.insert(userRoleWhitelist).values({
+    email: data.email.toLowerCase(),
+    role: data.role,
+    name: data.name,
+    department: data.department,
+    employeeNo: data.employeeNo,
+  });
+  
+  return result[0].insertId;
+}
+
+/**
+ * 批量添加白名单
+ */
+export async function batchAddWhitelist(items: {
+  email: string;
+  role: 'student' | 'teacher' | 'labAdmin' | 'sysAdmin';
+  name?: string;
+  department?: string;
+  employeeNo?: string;
+}[]) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  let successCount = 0;
+  let failCount = 0;
+  const errors: string[] = [];
+  
+  for (const item of items) {
+    try {
+      await db.insert(userRoleWhitelist).values({
+        email: item.email.toLowerCase(),
+        role: item.role,
+        name: item.name,
+        department: item.department,
+        employeeNo: item.employeeNo,
+      });
+      successCount++;
+    } catch (e: any) {
+      failCount++;
+      if (e.code === 'ER_DUP_ENTRY') {
+        errors.push(`${item.email}: 已存在`);
+      } else {
+        errors.push(`${item.email}: ${e.message}`);
+      }
+    }
+  }
+  
+  return { successCount, failCount, errors };
+}
+
+/**
+ * 删除白名单
+ */
+export async function deleteWhitelist(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  await db.delete(userRoleWhitelist).where(eq(userRoleWhitelist.id, id));
+}
+
+// ============ 角色升级申请管理 ============
+
+/**
+ * 创建角色升级申请
+ */
+export async function createRoleUpgradeRequest(data: {
+  userId: number;
+  requestedRole: 'teacher' | 'labAdmin';
+  reason?: string;
+  department?: string;
+  employeeNo?: string;
+  proofUrl?: string;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  // 检查是否已有待处理的申请
+  const existing = await db
+    .select()
+    .from(roleUpgradeRequests)
+    .where(
+      and(
+        eq(roleUpgradeRequests.userId, data.userId),
+        eq(roleUpgradeRequests.status, 'pending')
+      )
+    )
+    .limit(1);
+  
+  if (existing.length > 0) {
+    throw new Error("您已有待处理的申请，请等待审核");
+  }
+  
+  const result = await db.insert(roleUpgradeRequests).values({
+    userId: data.userId,
+    requestedRole: data.requestedRole,
+    reason: data.reason,
+    department: data.department,
+    employeeNo: data.employeeNo,
+    proofUrl: data.proofUrl,
+  });
+  
+  return result[0].insertId;
+}
+
+/**
+ * 获取用户的角色申请记录
+ */
+export async function getUserRoleRequests(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  
+  return await db
+    .select()
+    .from(roleUpgradeRequests)
+    .where(eq(roleUpgradeRequests.userId, userId))
+    .orderBy(desc(roleUpgradeRequests.createdAt));
+}
+
+/**
+ * 获取所有待审核的角色申请
+ */
+export async function getPendingRoleRequests() {
+  const db = await getDb();
+  if (!db) return [];
+  
+  const requests = await db
+    .select()
+    .from(roleUpgradeRequests)
+    .where(eq(roleUpgradeRequests.status, 'pending'))
+    .orderBy(asc(roleUpgradeRequests.createdAt));
+  
+  // 获取用户信息
+  const result = [];
+  for (const req of requests) {
+    const user = await getUserById(req.userId);
+    result.push({
+      ...req,
+      user: user ? { id: user.id, name: user.name, email: user.email, role: user.role } : null,
+    });
+  }
+  
+  return result;
+}
+
+/**
+ * 获取所有角色申请（含历史）
+ */
+export async function getAllRoleRequests(params?: { status?: string }) {
+  const db = await getDb();
+  if (!db) return [];
+  
+  let query = db.select().from(roleUpgradeRequests);
+  
+  if (params?.status) {
+    query = query.where(eq(roleUpgradeRequests.status, params.status as any)) as any;
+  }
+  
+  const requests = await query.orderBy(desc(roleUpgradeRequests.createdAt));
+  
+  // 获取用户信息
+  const result = [];
+  for (const req of requests) {
+    const user = await getUserById(req.userId);
+    const reviewer = req.reviewerId ? await getUserById(req.reviewerId) : null;
+    result.push({
+      ...req,
+      user: user ? { id: user.id, name: user.name, email: user.email, role: user.role } : null,
+      reviewer: reviewer ? { id: reviewer.id, name: reviewer.name } : null,
+    });
+  }
+  
+  return result;
+}
+
+/**
+ * 审核角色升级申请
+ */
+export async function reviewRoleRequest(
+  requestId: number,
+  reviewerId: number,
+  approved: boolean,
+  comment?: string
+) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  // 获取申请信息
+  const request = await db
+    .select()
+    .from(roleUpgradeRequests)
+    .where(eq(roleUpgradeRequests.id, requestId))
+    .limit(1);
+  
+  if (!request[0]) {
+    throw new Error("申请不存在");
+  }
+  
+  if (request[0].status !== 'pending') {
+    throw new Error("该申请已处理");
+  }
+  
+  // 更新申请状态
+  await db.update(roleUpgradeRequests).set({
+    status: approved ? 'approved' : 'rejected',
+    reviewerId,
+    reviewComment: comment,
+    reviewedAt: new Date(),
+  }).where(eq(roleUpgradeRequests.id, requestId));
+  
+  // 如果通过，更新用户角色
+  if (approved) {
+    await db.update(users).set({
+      role: request[0].requestedRole,
+    }).where(eq(users.id, request[0].userId));
+  }
+  
+  return { success: true };
+}
+
+// ============ 3L 智能推荐算法已移至 server/db-3l.ts（暂未启用） ============

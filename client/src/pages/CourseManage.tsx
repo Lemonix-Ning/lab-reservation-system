@@ -12,8 +12,8 @@ import {
   School,
   History,
   AlertCircle,
+  CalendarDays,
 } from "lucide-react";
-import { useRole } from "@/contexts/RoleContext";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -78,13 +78,13 @@ const StatusBadge = ({ status }: { status: string }) => {
 };
 
 export default function CourseManage() {
-  const { isTeacher, isSysAdmin } = useRole();
 
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [isEditCourseDialogOpen, setIsEditCourseDialogOpen] = useState(false);
   const [isStudentDialogOpen, setIsStudentDialogOpen] = useState(false);
   const [isAddStudentDialogOpen, setIsAddStudentDialogOpen] = useState(false);
   const [isReservationDialogOpen, setIsReservationDialogOpen] = useState(false);
+  const [isScheduleDialogOpen, setIsScheduleDialogOpen] = useState(false);
   const [selectedCourse, setSelectedCourse] = useState<any>(null);
   const [selectedStudentOpenIds, setSelectedStudentOpenIds] = useState<string[]>([]);
   const [studentSearchKeyword, setStudentSearchKeyword] = useState("");
@@ -127,6 +127,16 @@ export default function CourseManage() {
     endTime: "",
   });
 
+  const [scheduleFormData, setScheduleFormData] = useState({
+    labId: "",
+    dayOfWeek: "",
+    startPeriod: "",
+    endPeriod: "",
+    weekStart: "1",
+    weekEnd: "18",
+    weekType: "all" as "all" | "odd" | "even",
+  });
+
   // 生成学期选项（过去2年到未来2年）
   const semesterOptions = useMemo(() => {
     const options: { label: string; value: string }[] = [];
@@ -141,27 +151,14 @@ export default function CourseManage() {
     return options.reverse();
   }, []);
 
-  // 权限检查
-  if (!isTeacher && !isSysAdmin) {
-    return (
-      <div className="flex flex-col items-center justify-center h-[60vh] text-center space-y-4">
-        <div className="bg-red-50 p-6 rounded-full">
-          <AlertCircle className="h-12 w-12 text-red-500" />
-        </div>
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">权限不足</h1>
-          <p className="text-slate-500 mt-2">你没有权限访问课程管理模块</p>
-        </div>
-      </div>
-    );
-  }
+  // 权限检查由后端API和菜单过滤处理
 
   // 数据查询
   const { data: courses = [], isLoading, refetch } = trpc.course.list.useQuery();
   const { data: allUsers = [] } = trpc.user.getAll.useQuery();
   const { data: allClasses = [] } = trpc.class.list.useQuery();
   const { data: labs = [] } = trpc.courseReservation.listLabs.useQuery();
-  const { data: students = [] } = trpc.course.getStudents.useQuery(
+  const { data: students = [], refetch: refetchStudents } = trpc.course.getStudents.useQuery(
     { courseId: selectedCourse?.id || 0 },
     { enabled: !!selectedCourse }
   );
@@ -169,6 +166,11 @@ export default function CourseManage() {
     { courseId: selectedCourse?.id || 0 },
     { enabled: !!selectedCourse }
   );
+  const { data: courseSchedules = [], refetch: refetchSchedules } = trpc.classCheckin.getCourseSchedules.useQuery(
+    { courseId: selectedCourse?.id || 0 },
+    { enabled: !!selectedCourse && isScheduleDialogOpen }
+  );
+  const { data: periods = [] } = trpc.classCheckin.getPeriods.useQuery();
   const { data: classStudents = [] } = trpc.class.getStudents.useQuery(
     { classId: parseInt(selectedClassFilter) || 0 },
     { enabled: selectedClassFilter !== "all" && !!selectedClassFilter }
@@ -220,6 +222,7 @@ export default function CourseManage() {
       setStudentSearchKeyword("");
       setIsAddStudentDialogOpen(false);
       refetch();
+      refetchStudents(); // 刷新学生列表
     },
     onError: (error) => toast.error(`添加失败: ${error.message}`),
   });
@@ -229,18 +232,19 @@ export default function CourseManage() {
       toast.success("学生已成功移除");
       setDeleteConfirm(null);
       refetch();
+      refetchStudents(); // 刷新学生列表
     },
     onError: (error) => toast.error(`移除失败: ${error.message}`),
   });
 
-  // const updateCourseMutation = trpc.course.update.useMutation({
-  //   onSuccess: () => {
-  //     toast.success("课程已成功更新");
-  //     setIsEditCourseDialogOpen(false);
-  //     refetch();
-  //   },
-  //   onError: (error) => toast.error(`更新失败: ${error.message}`),
-  // });
+  const updateCourseMutation = trpc.course.update.useMutation({
+    onSuccess: () => {
+      toast.success("课程已成功更新");
+      setIsEditCourseDialogOpen(false);
+      refetch();
+    },
+    onError: (error) => toast.error(`更新失败: ${error.message}`),
+  });
 
   const deleteLabRoomMutation = trpc.labRoom.delete.useMutation({
     onSuccess: async () => {
@@ -261,14 +265,14 @@ export default function CourseManage() {
     onError: (error) => toast.error(`预约失败: ${error.message}`),
   });
 
-  // const updateReservationMutation = trpc.courseReservation.update.useMutation({
-  //   onSuccess: async () => {
-  //     toast.success("预约已成功更新");
-  //     setEditingReservation(null);
-  //     await refetchCourseReservations();
-  //   },
-  //   onError: (error: any) => toast.error(`更新失败: ${error.message}`),
-  // });
+  const updateReservationMutation = trpc.courseReservation.update.useMutation({
+    onSuccess: async () => {
+      toast.success("预约已成功更新");
+      setEditingReservation(null);
+      await refetchCourseReservations();
+    },
+    onError: (error: any) => toast.error(`更新失败: ${error.message}`),
+  });
 
   const cancelReservationMutation = trpc.courseReservation.cancel.useMutation({
     onSuccess: async () => {
@@ -278,6 +282,32 @@ export default function CourseManage() {
       await refetchCourseReservations();
     },
     onError: (error) => toast.error(`取消失败: ${error.message}`),
+  });
+
+  // 排课 mutations
+  const addScheduleMutation = trpc.classCheckin.addSchedule.useMutation({
+    onSuccess: () => {
+      toast.success("排课添加成功");
+      setScheduleFormData({
+        labId: "",
+        dayOfWeek: "",
+        startPeriod: "",
+        endPeriod: "",
+        weekStart: "1",
+        weekEnd: "18",
+        weekType: "all",
+      });
+      refetchSchedules();
+    },
+    onError: (error) => toast.error(`添加失败: ${error.message}`),
+  });
+
+  const deleteScheduleMutation = trpc.classCheckin.deleteSchedule.useMutation({
+    onSuccess: () => {
+      toast.success("排课已删除");
+      refetchSchedules();
+    },
+    onError: (error) => toast.error(`删除失败: ${error.message}`),
   });
 
   // 处理函数
@@ -318,14 +348,12 @@ export default function CourseManage() {
       toast.error("请填写必填字段");
       return;
     }
-    toast.error("暂不支持课程更新功能");
-    // TODO: 实现课程更新功能
-    // updateCourseMutation.mutate({
-    //   courseId: selectedCourse.id,
-    //   name: editFormData.name,
-    //   description: editFormData.description || null,
-    //   semester: editFormData.semester,
-    // });
+    updateCourseMutation.mutate({
+      id: selectedCourse.id,
+      name: editFormData.name,
+      description: editFormData.description || null,
+      semester: editFormData.semester,
+    });
   };
 
   const handleEditReservation = (reservation: any) => {
@@ -347,6 +375,10 @@ export default function CourseManage() {
   };
 
   const handleUpdateReservation = () => {
+    if (!editingReservation) {
+      toast.error("请先选择要编辑的预约");
+      return;
+    }
     if (!editReservationData.labId || !editReservationData.title || !editReservationData.date || !editReservationData.startTime || !editReservationData.endTime) {
       toast.error("请填写所有必填字段");
       return;
@@ -357,16 +389,14 @@ export default function CourseManage() {
       toast.error("开始时间必须早于结束时间");
       return;
     }
-    toast.error("暂不支持预约更新功能");
-    // TODO: 实现预约更新功能
-    // updateReservationMutation.mutate({
-    //   reservationId: editingReservation.id,
-    //   labId: parseInt(editReservationData.labId),
-    //   title: editReservationData.title,
-    //   reason: editReservationData.reason || undefined,
-    //   startTime: startDateTime,
-    //   endTime: endDateTime,
-    // });
+    updateReservationMutation.mutate({
+      reservationId: editingReservation.id,
+      labId: parseInt(editReservationData.labId),
+      title: editReservationData.title,
+      reason: editReservationData.reason || undefined,
+      startTime: startDateTime,
+      endTime: endDateTime,
+    });
   };
 
   const handleReserveLab = () => {
@@ -543,6 +573,26 @@ export default function CourseManage() {
                 >
                   <Plus className="h-3 w-3 mr-1" /> 添加学生
                 </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full col-span-2 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 border-emerald-200"
+                  onClick={() => {
+                    setSelectedCourse(course);
+                    setScheduleFormData({
+                      labId: "",
+                      dayOfWeek: "",
+                      startPeriod: "",
+                      endPeriod: "",
+                      weekStart: "1",
+                      weekEnd: "18",
+                      weekType: "all",
+                    });
+                    setIsScheduleDialogOpen(true);
+                  }}
+                >
+                  <CalendarDays className="h-3 w-3 mr-1" /> 课程排课
+                </Button>
               </CardFooter>
             </Card>
           ))}
@@ -624,7 +674,16 @@ export default function CourseManage() {
       </Dialog>
 
       {/* 2. 查看学生列表 */}
-      <Dialog open={isStudentDialogOpen} onOpenChange={setIsStudentDialogOpen}>
+      <Dialog 
+        open={isStudentDialogOpen} 
+        onOpenChange={(open) => {
+          setIsStudentDialogOpen(open);
+          // 对话框打开时刷新学生列表
+          if (open && selectedCourse) {
+            refetchStudents();
+          }
+        }}
+      >
         <DialogContent className="max-w-3xl rounded-xl">
           <DialogHeader className="border-b pb-4">
             <div className="flex items-center justify-between mr-8">
@@ -705,12 +764,17 @@ export default function CourseManage() {
               <div className="space-y-2">
                 <Label>按班级筛选</Label>
                 <Select value={selectedClassFilter} onValueChange={setSelectedClassFilter}>
-                  <SelectTrigger className="bg-white"><SelectValue placeholder="全部班级" /></SelectTrigger>
+                  <SelectTrigger className="bg-white w-full">
+                    <SelectValue placeholder="全部班级" />
+                  </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">全部班级</SelectItem>
                     {allClasses.map((cls: any) => (
                       <SelectItem key={cls.id} value={cls.id.toString()}>
-                        {cls.name} ({cls.classNo})
+                        <div className="flex flex-col items-start py-1">
+                          <span className="font-medium">{cls.name}</span>
+                          <span className="text-xs text-gray-500">{cls.classNo}</span>
+                        </div>
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -764,6 +828,12 @@ export default function CourseManage() {
               <div className="h-full flex flex-col items-center justify-center text-slate-400">
                 <Search className="h-10 w-10 mb-2 opacity-20" />
                 <p>未找到匹配的学生</p>
+                {allStudents.length === 0 && (
+                  <p className="text-xs mt-2 text-red-500">系统中暂无学生用户</p>
+                )}
+                {allStudents.length > 0 && selectedClassFilter !== "all" && classStudents.length === 0 && (
+                  <p className="text-xs mt-2 text-amber-600">该班级暂无学生</p>
+                )}
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
@@ -1076,6 +1146,201 @@ export default function CourseManage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* 排课管理 Dialog */}
+      <Dialog open={isScheduleDialogOpen} onOpenChange={setIsScheduleDialogOpen}>
+        <DialogContent className="sm:max-w-[700px] max-h-[85vh] overflow-y-auto rounded-xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-xl">
+              <CalendarDays className="h-5 w-5 text-emerald-600" />
+              课程排课 - {selectedCourse?.name}
+            </DialogTitle>
+            <DialogDescription>
+              设置课程的上课时间安排（按周次/节次）
+            </DialogDescription>
+          </DialogHeader>
+
+          {/* 已有排课列表 */}
+          <div className="space-y-3">
+            <h4 className="font-medium text-sm text-slate-700">已安排的课时</h4>
+            {courseSchedules.length === 0 ? (
+              <div className="text-center py-6 text-slate-400 bg-slate-50 rounded-lg">
+                暂无排课安排
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {courseSchedules.map((schedule: any) => {
+                  const dayNames = ['', '周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+                  const weekTypeLabels = { all: '每周', odd: '单周', even: '双周' };
+                  return (
+                    <div key={schedule.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+                      <div className="flex items-center gap-4">
+                        <div className="flex items-center gap-2">
+                          <Calendar className="h-4 w-4 text-slate-500" />
+                          <span className="font-medium">{dayNames[schedule.dayOfWeek]}</span>
+                        </div>
+                        <div className="text-sm text-slate-600">
+                          第{schedule.startPeriod}-{schedule.endPeriod}节
+                        </div>
+                        <div className="text-sm text-slate-500">
+                          第{schedule.weekStart}-{schedule.weekEnd}周
+                          <span className="ml-1 text-xs text-emerald-600">
+                            ({weekTypeLabels[schedule.weekType as keyof typeof weekTypeLabels]})
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1 text-sm text-slate-500">
+                          <MapPin className="h-3 w-3" />
+                          {schedule.labName}
+                        </div>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-red-500 hover:text-red-600 hover:bg-red-50"
+                        onClick={() => deleteScheduleMutation.mutate({ id: schedule.id })}
+                        disabled={deleteScheduleMutation.isPending}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* 添加新排课 */}
+          <div className="border-t pt-4 mt-4">
+            <h4 className="font-medium text-sm text-slate-700 mb-3">添加新课时</h4>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label>上课星期 <span className="text-red-500">*</span></Label>
+                <Select
+                  value={scheduleFormData.dayOfWeek}
+                  onValueChange={(v) => setScheduleFormData({ ...scheduleFormData, dayOfWeek: v })}
+                >
+                  <SelectTrigger><SelectValue placeholder="选择星期" /></SelectTrigger>
+                  <SelectContent>
+                    {['周一', '周二', '周三', '周四', '周五', '周六', '周日'].map((day, i) => (
+                      <SelectItem key={i + 1} value={(i + 1).toString()}>{day}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>上课地点 <span className="text-red-500">*</span></Label>
+                <Select
+                  value={scheduleFormData.labId}
+                  onValueChange={(v) => setScheduleFormData({ ...scheduleFormData, labId: v })}
+                >
+                  <SelectTrigger><SelectValue placeholder="选择实验室" /></SelectTrigger>
+                  <SelectContent>
+                    {labs.map((lab: any) => (
+                      <SelectItem key={lab.id} value={lab.id.toString()}>{lab.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>开始节次 <span className="text-red-500">*</span></Label>
+                <Select
+                  value={scheduleFormData.startPeriod}
+                  onValueChange={(v) => setScheduleFormData({ ...scheduleFormData, startPeriod: v })}
+                >
+                  <SelectTrigger><SelectValue placeholder="选择开始节次" /></SelectTrigger>
+                  <SelectContent>
+                    {periods.map((p: any) => (
+                      <SelectItem key={p.periodNo} value={p.periodNo.toString()}>
+                        第{p.periodNo}节 ({p.startTime}-{p.endTime})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>结束节次 <span className="text-red-500">*</span></Label>
+                <Select
+                  value={scheduleFormData.endPeriod}
+                  onValueChange={(v) => setScheduleFormData({ ...scheduleFormData, endPeriod: v })}
+                >
+                  <SelectTrigger><SelectValue placeholder="选择结束节次" /></SelectTrigger>
+                  <SelectContent>
+                    {periods.map((p: any) => (
+                      <SelectItem key={p.periodNo} value={p.periodNo.toString()}>
+                        第{p.periodNo}节 ({p.startTime}-{p.endTime})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>起始周</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={20}
+                  value={scheduleFormData.weekStart}
+                  onChange={(e) => setScheduleFormData({ ...scheduleFormData, weekStart: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>结束周</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={20}
+                  value={scheduleFormData.weekEnd}
+                  onChange={(e) => setScheduleFormData({ ...scheduleFormData, weekEnd: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2 col-span-2">
+                <Label>周类型</Label>
+                <Select
+                  value={scheduleFormData.weekType}
+                  onValueChange={(v) => setScheduleFormData({ ...scheduleFormData, weekType: v as "all" | "odd" | "even" })}
+                >
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">每周</SelectItem>
+                    <SelectItem value="odd">单周</SelectItem>
+                    <SelectItem value="even">双周</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <Button
+              className="w-full mt-4 bg-emerald-600 hover:bg-emerald-700"
+              disabled={
+                !scheduleFormData.dayOfWeek ||
+                !scheduleFormData.labId ||
+                !scheduleFormData.startPeriod ||
+                !scheduleFormData.endPeriod ||
+                addScheduleMutation.isPending
+              }
+              onClick={() => {
+                addScheduleMutation.mutate({
+                  courseId: selectedCourse?.id,
+                  labId: parseInt(scheduleFormData.labId),
+                  dayOfWeek: parseInt(scheduleFormData.dayOfWeek),
+                  startPeriod: parseInt(scheduleFormData.startPeriod),
+                  endPeriod: parseInt(scheduleFormData.endPeriod),
+                  weekStart: parseInt(scheduleFormData.weekStart) || 1,
+                  weekEnd: parseInt(scheduleFormData.weekEnd) || 18,
+                  weekType: scheduleFormData.weekType,
+                });
+              }}
+            >
+              {addScheduleMutation.isPending ? "添加中..." : "添加课时"}
+            </Button>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsScheduleDialogOpen(false)}>
+              关闭
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
