@@ -50,6 +50,13 @@ interface ImportResult {
   message: string;
 }
 
+interface TeacherImportSummary {
+  teacherName: string;
+  total: number;
+  success: number;
+  failed: number;
+}
+
 function parseDay(val: any): number | null {
   if (!val) return null;
   const s = String(val).trim();
@@ -89,12 +96,14 @@ export default function ScheduleImport({ onSuccess }: { onSuccess?: () => void }
   const [fileName, setFileName] = useState("");
   const [autoApprove, setAutoApprove] = useState(true);
   const [importResults, setImportResults] = useState<ImportResult[] | null>(null);
+  const [teacherSummary, setTeacherSummary] = useState<TeacherImportSummary[]>([]);
   const [step, setStep] = useState<"upload" | "preview" | "result">("upload");
   const fileRef = useRef<HTMLInputElement>(null);
 
   const batchImport = trpc.classCheckin.batchImportSchedules.useMutation({
     onSuccess: (data) => {
       setImportResults(data.results);
+      setTeacherSummary(data.byTeacher || []);
       setStep("result");
       if (data.successCount > 0) {
         toast.success(`成功导入 ${data.successCount}/${data.totalCount} 条排课`);
@@ -112,6 +121,7 @@ export default function ScheduleImport({ onSuccess }: { onSuccess?: () => void }
     setParsedRows([]);
     setFileName("");
     setImportResults(null);
+    setTeacherSummary([]);
     setStep("upload");
     if (fileRef.current) fileRef.current.value = "";
   }, []);
@@ -144,6 +154,7 @@ export default function ScheduleImport({ onSuccess }: { onSuccess?: () => void }
 
           let error = "";
           if (!courseNo) error = "缺少课程编号";
+          else if (!teacherName) error = "缺少教师姓名";
           else if (!labRoomNo) error = "缺少实验室编号";
           else if (!dayOfWeek) error = "星期格式错误";
           else if (!startPeriod || startPeriod < 1 || startPeriod > 12) error = "节次范围错误";
@@ -209,14 +220,14 @@ export default function ScheduleImport({ onSuccess }: { onSuccess?: () => void }
           <Upload className="h-4 w-4" /> Excel 导入排课
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col">
+      <DialogContent className="w-[96vw] max-w-[96vw] sm:max-w-[1200px] max-h-[92vh] flex flex-col overflow-hidden">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-lg">
             <FileSpreadsheet className="h-5 w-5 text-green-600" />
-            批量导入排课
+            管理员导入本学期课程清单
           </DialogTitle>
           <DialogDescription>
-            上传 Excel 文件批量导入排课数据，系统将自动检查冲突
+            上传 Excel 文件批量导入本学期教师课程清单，系统将自动检查冲突并输出按教师汇总结果
           </DialogDescription>
         </DialogHeader>
 
@@ -243,14 +254,14 @@ export default function ScheduleImport({ onSuccess }: { onSuccess?: () => void }
                 <Download className="h-4 w-4" /> 下载导入模板
               </Button>
               <div className="text-xs text-slate-400">
-                必填列：课程编号、实验室编号、星期、开始节次、结束节次；建议填写：课程名称、教师姓名
+                必填列：课程编号、教师姓名、实验室编号、星期、开始节次、结束节次；建议先用演示账号模板测试
               </div>
             </div>
           </div>
         )}
 
         {step === "preview" && (
-          <div className="space-y-3 flex-1 min-h-0">
+          <div className="space-y-3 flex flex-col flex-1 min-h-0">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3 text-sm">
                 <span className="text-slate-500">文件：{fileName}</span>
@@ -270,7 +281,7 @@ export default function ScheduleImport({ onSuccess }: { onSuccess?: () => void }
               </div>
             </div>
 
-            <ScrollArea className="h-[340px] border rounded-lg">
+            <ScrollArea className="flex-1 min-h-[260px] border rounded-lg">
               <table className="w-full text-sm">
                 <thead className="sticky top-0 bg-slate-50 z-10">
                   <tr className="border-b">
@@ -324,7 +335,7 @@ export default function ScheduleImport({ onSuccess }: { onSuccess?: () => void }
               </table>
             </ScrollArea>
 
-            <DialogFooter className="gap-2">
+            <DialogFooter className="gap-2 shrink-0 flex-wrap">
               <Button variant="ghost" onClick={reset}>重新选择</Button>
               <Button
                 onClick={handleImport}
@@ -339,7 +350,7 @@ export default function ScheduleImport({ onSuccess }: { onSuccess?: () => void }
         )}
 
         {step === "result" && importResults && (
-          <div className="space-y-3 flex-1 min-h-0">
+          <div className="space-y-3 flex flex-col flex-1 min-h-0">
             <div className="flex items-center gap-3 text-sm">
               <Badge className="gap-1 bg-green-100 text-green-700 border-green-300" variant="outline">
                 <CheckCircle2 className="h-3 w-3" /> {importResults.filter(r => r.success).length} 成功
@@ -351,7 +362,23 @@ export default function ScheduleImport({ onSuccess }: { onSuccess?: () => void }
               )}
             </div>
 
-            <ScrollArea className="h-[340px] border rounded-lg">
+            {teacherSummary.length > 0 && (
+              <div className="border rounded-lg p-3 bg-slate-50/80">
+                <div className="text-sm font-medium mb-2">按教师汇总（用于后续关联实验室与学生）</div>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {teacherSummary.map((item) => (
+                    <div key={item.teacherName} className="rounded border bg-white p-2 text-xs">
+                      <div className="font-medium mb-1">{item.teacherName}</div>
+                      <div className="text-slate-600">总计 {item.total} 条</div>
+                      <div className="text-green-700">成功 {item.success} 条</div>
+                      <div className={item.failed > 0 ? "text-rose-700" : "text-slate-500"}>失败 {item.failed} 条</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <ScrollArea className="flex-1 min-h-[260px] border rounded-lg">
               <table className="w-full text-sm">
                 <thead className="sticky top-0 bg-slate-50 z-10">
                   <tr className="border-b">
@@ -378,7 +405,7 @@ export default function ScheduleImport({ onSuccess }: { onSuccess?: () => void }
               </table>
             </ScrollArea>
 
-            <DialogFooter>
+            <DialogFooter className="gap-2 shrink-0 flex-wrap">
               <Button variant="ghost" onClick={reset}>继续导入</Button>
               <Button onClick={() => { setOpen(false); reset(); }}>完成</Button>
             </DialogFooter>

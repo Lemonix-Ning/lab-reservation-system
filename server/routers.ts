@@ -77,6 +77,14 @@ const teacherProcedure = protectedProcedure.use(async ({ ctx, next }) => {
   throw new TRPCError({ code: 'FORBIDDEN', message: '需要教师权限' });
 });
 
+// 仅教师可用（用于教师专属业务，避免管理员代办）
+const teacherOnlyProcedure = protectedProcedure.use(({ ctx, next }) => {
+  if (ctx.user.role !== 'teacher') {
+    throw new TRPCError({ code: 'FORBIDDEN', message: '该操作仅面向教师' });
+  }
+  return next({ ctx });
+});
+
 // 实验室管理员权限检查（支持动态权限）
 const labAdminProcedure = protectedProcedure.use(async ({ ctx, next }) => {
   // 角色检查
@@ -586,6 +594,10 @@ export const appRouter = router({
   reservation: router({
     // 学生查看个人预约
     myList: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== 'student') {
+        throw new TRPCError({ code: 'FORBIDDEN', message: '该页面仅面向学生' });
+      }
+
       const reservations = await db.getUserReservations(ctx.user.id);
       // 关联实验室信息
       const roomIds = Array.from(new Set(reservations.map(r => r.labId)));
@@ -641,6 +653,14 @@ export const appRouter = router({
         endTime: z.date(),
       }))
       .mutation(async ({ ctx, input }) => {
+        // 双模式约束：个人预约仅学生可发起
+        if (ctx.user.role !== 'student') {
+          throw new TRPCError({
+            code: 'FORBIDDEN',
+            message: '个人预约仅面向学生，请使用课程预约流程'
+          });
+        }
+
         // 0. 检查用户是否被黑名单
         const isBlacklisted = await db.isUserBlacklisted(ctx.user.id);
         if (isBlacklisted) {
@@ -1650,7 +1670,7 @@ export const appRouter = router({
       }),
 
     // 教师创建课程
-    create: teacherProcedure
+    create: teacherOnlyProcedure
       .input(z.object({
         courseNo: z.string().min(1),
         name: z.string().min(1),
@@ -1712,7 +1732,7 @@ export const appRouter = router({
       }),
 
     // 教师查看自己的课程
-    myList: teacherProcedure
+    myList: teacherOnlyProcedure
       .query(async ({ ctx }) => {
         return await db.getCoursesByTeacherId(ctx.user.id);
       }),
@@ -1733,7 +1753,7 @@ export const appRouter = router({
       }),
 
     // 教师添加学生到课程
-    addStudent: teacherProcedure
+    addStudent: teacherOnlyProcedure
       .input(z.object({
         courseId: z.number(),
         studentOpenIds: z.array(z.string()).optional(), // 学生OpenId列表
@@ -1803,7 +1823,7 @@ export const appRouter = router({
       }),
 
     // 获取课程学生列表
-    getStudents: teacherProcedure
+    getStudents: teacherOnlyProcedure
       .input(z.object({ courseId: z.number() }))
       .query(async ({ ctx, input }) => {
         const course = await db.getCourseById(input.courseId);
@@ -1814,7 +1834,7 @@ export const appRouter = router({
       }),
 
     // 教师从课程中移除学生
-    removeStudent: teacherProcedure
+    removeStudent: teacherOnlyProcedure
       .input(z.object({
         courseId: z.number(),
         studentId: z.number(),
@@ -1842,7 +1862,7 @@ export const appRouter = router({
       }),
 
     // 教师更新课程信息
-    update: teacherProcedure
+    update: teacherOnlyProcedure
       .input(z.object({
         id: z.number(),
         courseNo: z.string().optional(),
@@ -1874,7 +1894,7 @@ export const appRouter = router({
       }),
 
     // 教师删除课程
-    delete: teacherProcedure
+    delete: teacherOnlyProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ ctx, input }) => {
         const course = await db.getCourseById(input.id);
@@ -1911,7 +1931,7 @@ export const appRouter = router({
   // ============ 课程预约管理 ============
   courseReservation: router({
     // 教师创建课程预约
-    create: teacherProcedure
+    create: teacherOnlyProcedure
       .input(z.object({
         courseId: z.number(),
         labId: z.number(),
@@ -1975,20 +1995,20 @@ export const appRouter = router({
       }),
 
     // 获取课程的所有预约（教师视角：包括已取消的）
-    getAllByCourse: teacherProcedure
+    getAllByCourse: teacherOnlyProcedure
       .input(z.object({ courseId: z.number() }))
       .query(async ({ input }) => {
         return await db.getAllCourseReservationsByCourse(input.courseId);
       }),
 
     // 获取所有可用的实验室
-    listLabs: teacherProcedure
+    listLabs: teacherOnlyProcedure
       .query(async () => {
         return await db.getAllLabRooms();
       }),
 
     // 检查实验室在指定时间的预约情况
-    checkLabAvailability: teacherProcedure
+    checkLabAvailability: teacherOnlyProcedure
       .input(z.object({
         labId: z.number(),
         startTime: z.date(),
@@ -2000,7 +2020,7 @@ export const appRouter = router({
       }),
 
     // 教师更新课程预约
-    update: teacherProcedure
+    update: teacherOnlyProcedure
       .input(z.object({
         reservationId: z.number(),
         labId: z.number().optional(),
@@ -2050,7 +2070,7 @@ export const appRouter = router({
       }),
 
     // 教师取消课程预约
-    cancel: teacherProcedure
+    cancel: teacherOnlyProcedure
       .input(z.object({
         reservationId: z.number(),
       }))
@@ -2580,7 +2600,7 @@ export const appRouter = router({
         };
       }),
 
-    getCourseCalendar: teacherProcedure
+    getCourseCalendar: teacherOnlyProcedure
       .input(z.object({
         startDate: z.string().datetime(),
         endDate: z.string().datetime(),
@@ -2773,7 +2793,7 @@ export const appRouter = router({
       }),
 
     // 添加课程排课
-    addSchedule: teacherProcedure
+    addSchedule: teacherOnlyProcedure
       .input(z.object({
         courseId: z.number(),
         labId: z.number(),
@@ -2854,7 +2874,7 @@ export const appRouter = router({
       }),
 
     // 更新课程排课
-    updateSchedule: teacherProcedure
+    updateSchedule: teacherOnlyProcedure
       .input(z.object({
         id: z.number(),
         labId: z.number().optional(),
@@ -2874,7 +2894,7 @@ export const appRouter = router({
       }),
 
     // 删除课程排课
-    deleteSchedule: teacherProcedure
+    deleteSchedule: teacherOnlyProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
         await db.deleteCourseSchedule(input.id);
@@ -3023,7 +3043,7 @@ export const appRouter = router({
         rows: z.array(z.object({
           courseName: z.string().optional(),
           courseNo: z.string(),
-          teacherName: z.string().optional(),
+          teacherName: z.string().min(1),
           labRoomNo: z.string(),
           dayOfWeek: z.number().min(1).max(7),
           startPeriod: z.number().min(1).max(12),
@@ -3033,29 +3053,146 @@ export const appRouter = router({
           weekType: z.enum(['all', 'odd', 'even']).default('all'),
         })),
         autoApprove: z.boolean().default(true),
+        syncCourseCards: z.boolean().default(true),
       }))
       .mutation(async ({ ctx, input }) => {
         const results: { row: number; success: boolean; message: string }[] = [];
+        const teacherSummary = new Map<string, { total: number; success: number; failed: number }>();
+        const users = await db.getAllUsers();
+        const teacherByName = new Map(
+          users
+            .filter((u: any) => u.role === 'teacher')
+            .map((u: any) => [String(u.name || '').trim(), u])
+        );
+        const demoStudents = users.filter((u: any) => String(u.openId || '').startsWith('demo-student-'));
+        const currentSemester = await db.getCurrentSemester();
+        const defaultSemesterCode = currentSemester?.semesterCode || `${new Date().getFullYear()}-${new Date().getMonth() + 1 <= 6 ? '2' : '1'}`;
 
         for (let i = 0; i < input.rows.length; i++) {
           const row = input.rows[i];
+          const teacherKey = (row.teacherName || '未标注教师').trim();
+          if (!teacherSummary.has(teacherKey)) {
+            teacherSummary.set(teacherKey, { total: 0, success: 0, failed: 0 });
+          }
+          teacherSummary.get(teacherKey)!.total++;
+
           try {
-            // 查找课程
-            const course = await db.getCourseByNo(row.courseNo);
-            if (!course) {
-              results.push({ row: i + 1, success: false, message: `课程编号 "${row.courseNo}" 不存在` });
+            const inputTeacherName = row.teacherName.trim();
+            const teacher = teacherByName.get(inputTeacherName);
+            if (!teacher) {
+              results.push({ row: i + 1, success: false, message: `教师 "${inputTeacherName}" 不存在或不是教师角色` });
+              teacherSummary.get(teacherKey)!.failed++;
               continue;
+            }
+
+            // 课程卡片同步：可自动创建课程并校正课程归属、名称与学期
+            let course = await db.getCourseByNo(row.courseNo);
+            if (!course && input.syncCourseCards) {
+              await db.createCourse({
+                courseNo: row.courseNo.trim(),
+                name: (row.courseName || row.courseNo).trim(),
+                description: null,
+                teacherId: teacher.id,
+                semester: defaultSemesterCode,
+                status: 'active',
+              } as any);
+              course = await db.getCourseByNo(row.courseNo);
+            }
+
+            if (!course) {
+              results.push({ row: i + 1, success: false, message: `课程编号 "${row.courseNo}" 不存在（可开启课程卡片同步自动创建）` });
+              teacherSummary.get(teacherKey)!.failed++;
+              continue;
+            }
+
+            let syncNote = '';
+            if (input.syncCourseCards) {
+              const patch: any = {};
+              if (course.teacherId !== teacher.id) patch.teacherId = teacher.id;
+              if (row.courseName && row.courseName.trim() && course.name !== row.courseName.trim()) {
+                patch.name = row.courseName.trim();
+              }
+              if (defaultSemesterCode && course.semester !== defaultSemesterCode) {
+                patch.semester = defaultSemesterCode;
+              }
+              if (Object.keys(patch).length > 0) {
+                await db.updateCourse(course.id, patch);
+                course = (await db.getCourseByNo(row.courseNo)) || course;
+              }
+
+              // 演示环境可见性增强：若课程无学生，自动补齐一批演示学生，确保学生端可见
+              if (String(teacher.openId || '').startsWith('demo-teacher-')) {
+                const currentStudents = await db.getCourseStudents(course.id);
+                if (currentStudents.length === 0 && demoStudents.length > 0) {
+                  let added = 0;
+                  for (const stu of demoStudents.slice(0, 12)) {
+                    try {
+                      await db.addStudentToCourse(course.id, stu.id);
+                      added++;
+                    } catch (e: any) {
+                      if (e?.code !== 'ER_DUP_ENTRY' && e?.cause?.code !== 'ER_DUP_ENTRY') {
+                        throw e;
+                      }
+                    }
+                  }
+                  if (added > 0) {
+                    syncNote = `，并同步学生${added}人`;
+                  }
+                }
+              }
+            } else {
+              const courseTeacher = await db.getUserById(course.teacherId);
+              const ownerTeacherName = (courseTeacher?.name || '').trim();
+              if (!ownerTeacherName || ownerTeacherName !== inputTeacherName) {
+                results.push({
+                  row: i + 1,
+                  success: false,
+                  message: `课程 "${course.name}" 归属教师为 "${ownerTeacherName || '未设置'}"，与导入教师 "${inputTeacherName}" 不一致`
+                });
+                teacherSummary.get(teacherKey)!.failed++;
+                continue;
+              }
             }
 
             // 查找实验室
             const lab = await db.getLabRoomByNo(row.labRoomNo);
             if (!lab) {
               results.push({ row: i + 1, success: false, message: `实验室编号 "${row.labRoomNo}" 不存在` });
+              teacherSummary.get(teacherKey)!.failed++;
+              continue;
+            }
+
+            // 幂等导入：同一课程在同一实验室/时间段/周次已存在时，直接跳过并计为成功
+            const existingSchedules = await db.getCourseSchedules(course.id);
+            const exactMatch = existingSchedules.find((s: any) =>
+              s.labId === lab.id &&
+              s.dayOfWeek === row.dayOfWeek &&
+              s.startPeriod === row.startPeriod &&
+              s.endPeriod === row.endPeriod &&
+              s.startWeek === row.weekStart &&
+              s.endWeek === row.weekEnd &&
+              s.weekType === row.weekType
+            );
+            if (exactMatch) {
+              // 若导入要求自动审批，确保已有记录也处于已审批状态
+              if (input.autoApprove && exactMatch.id) {
+                await db.approveSchedule(exactMatch.id, ctx.user.id);
+              }
+
+              const teacherInfo = row.teacherName ? `（${row.teacherName}）` : '';
+              const syncInfo = input.syncCourseCards ? '，课程卡片已同步' : '';
+              results.push({
+                row: i + 1,
+                success: true,
+                message: `${course.name}${teacherInfo} 在 ${lab.name} 的同时间排课已存在，已跳过${syncInfo}`,
+              });
+              teacherSummary.get(teacherKey)!.success++;
               continue;
             }
 
             if (row.startPeriod > row.endPeriod) {
               results.push({ row: i + 1, success: false, message: '开始节次不能大于结束节次' });
+              teacherSummary.get(teacherKey)!.failed++;
               continue;
             }
 
@@ -3075,6 +3212,7 @@ export const appRouter = router({
                 `${c.courseName}（第${c.startPeriod}-${c.endPeriod}节）`
               ).join('、');
               results.push({ row: i + 1, success: false, message: `与排课冲突：${conflictInfo}` });
+              teacherSummary.get(teacherKey)!.failed++;
               continue;
             }
 
@@ -3094,6 +3232,7 @@ export const appRouter = router({
                 `${c.title}（第${c.weekNo}周，${new Date(c.startTime).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}）`
               ).join('、');
               results.push({ row: i + 1, success: false, message: `与个人预约冲突：${conflictInfo}` });
+              teacherSummary.get(teacherKey)!.failed++;
               continue;
             }
 
@@ -3115,18 +3254,26 @@ export const appRouter = router({
             }
 
             const teacherInfo = row.teacherName ? `（${row.teacherName}）` : '';
-            results.push({ row: i + 1, success: true, message: `${course.name}${teacherInfo} → ${lab.name} 导入成功` });
+            const syncInfo = input.syncCourseCards ? `，课程卡片已同步${syncNote}` : '';
+            results.push({ row: i + 1, success: true, message: `${course.name}${teacherInfo} → ${lab.name} 导入成功${syncInfo}` });
+            teacherSummary.get(teacherKey)!.success++;
           } catch (err: any) {
             results.push({ row: i + 1, success: false, message: err.message || '未知错误' });
+            teacherSummary.get(teacherKey)!.failed++;
           }
         }
 
         const successCount = results.filter(r => r.success).length;
-        return { results, successCount, totalCount: input.rows.length };
+        const byTeacher = Array.from(teacherSummary.entries()).map(([teacherName, stats]) => ({
+          teacherName,
+          ...stats,
+        }));
+
+        return { results, successCount, totalCount: input.rows.length, byTeacher };
       }),
 
     // 教师开启签到会话
-    startSession: teacherProcedure
+    startSession: teacherOnlyProcedure
       .input(z.object({
         courseId: z.number(),
         labId: z.number(),
@@ -3188,7 +3335,7 @@ export const appRouter = router({
       }),
 
     // 刷新二维码令牌
-    refreshQrcode: teacherProcedure
+    refreshQrcode: teacherOnlyProcedure
       .input(z.object({ sessionId: z.number() }))
       .mutation(async ({ ctx, input }) => {
         const session = await db.getCheckinSessionById(input.sessionId);
@@ -3211,7 +3358,7 @@ export const appRouter = router({
       }),
 
     // 教师关闭签到会话
-    closeSession: teacherProcedure
+    closeSession: teacherOnlyProcedure
       .input(z.object({ sessionId: z.number() }))
       .mutation(async ({ ctx, input }) => {
         const session = await db.getCheckinSessionById(input.sessionId);
@@ -3241,7 +3388,7 @@ export const appRouter = router({
       }),
 
     // 获取签到会话详情（含出勤列表）
-    getSessionDetail: teacherProcedure
+    getSessionDetail: teacherOnlyProcedure
       .input(z.object({ sessionId: z.number() }))
       .query(async ({ ctx, input }) => {
         const session = await db.getCheckinSessionById(input.sessionId);
@@ -3265,7 +3412,7 @@ export const appRouter = router({
       }),
 
     // 教师获取当前活跃的签到会话
-    getActiveSession: teacherProcedure
+    getActiveSession: teacherOnlyProcedure
       .input(z.object({ courseId: z.number() }))
       .query(async ({ ctx, input }) => {
         const course = await db.getCourseById(input.courseId);
@@ -3281,7 +3428,7 @@ export const appRouter = router({
       }),
 
     // 教师手动更新学生出勤状态
-    updateAttendance: teacherProcedure
+    updateAttendance: teacherOnlyProcedure
       .input(z.object({
         sessionId: z.number(),
         studentId: z.number(),
@@ -3303,14 +3450,14 @@ export const appRouter = router({
       }),
 
     // 教师获取签到历史
-    getHistory: teacherProcedure
+    getHistory: teacherOnlyProcedure
       .input(z.object({ courseId: z.number().optional() }))
       .query(async ({ ctx, input }) => {
         return await db.getTeacherCheckinHistory(ctx.user.id, input.courseId);
       }),
 
     // 获取课程出勤统计
-    getCourseStats: teacherProcedure
+    getCourseStats: teacherOnlyProcedure
       .input(z.object({ courseId: z.number() }))
       .query(async ({ ctx, input }) => {
         const course = await db.getCourseById(input.courseId);

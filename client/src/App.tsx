@@ -39,6 +39,21 @@ import AccountBindings from "./pages/AccountBindings";
 import AccountProfile from "./pages/AccountProfile";
 import AccountDelete from "./pages/AccountDelete";
 import OAuthDebug from "./pages/OAuthDebug";
+import { useRole } from "./contexts/RoleContext";
+
+function CourseRouteGuard() {
+  const { currentRole } = useRole();
+
+  if (currentRole === "student") {
+    return <StudentCourses />;
+  }
+
+  if (currentRole !== "teacher") {
+    return <NotFound />;
+  }
+
+  return <CourseManage />;
+}
 
 function Router() {
   return (
@@ -47,7 +62,7 @@ function Router() {
       <Route path={"/labs"} component={LabRoomList} />
       <Route path={"/my-reservations"} component={MyReservations} />
       <Route path={"/notifications"} component={NotificationCenter} />
-      <Route path={"/courses"} component={CourseManage} />
+      <Route path={"/courses"} component={CourseRouteGuard} />
       <Route path={"/class-checkin"} component={ClassCheckin} />
       <Route path={"/student/courses"} component={StudentCourses} />
       <Route path={"/student/checkin"} component={StudentCheckin} />

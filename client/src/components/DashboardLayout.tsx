@@ -22,7 +22,7 @@ import {
 import { getLoginUrl } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
 import { useRole } from "@/contexts/RoleContext";
-import { useState, useEffect } from "react";
+import { CSSProperties, useEffect, useRef, useState } from "react";
 import { 
   BarChart3, 
   Calendar, 
@@ -51,7 +51,6 @@ import {
   Trash2,
   LayoutGrid
 } from "lucide-react";
-import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
 import { NotificationBell } from './NotificationBell';
@@ -66,7 +65,7 @@ const menuItems = [
   
   // 所有角色都能访问
   { icon: Calendar, label: "浏览实验室", path: "/labs", roles: ['student', 'teacher', 'labAdmin', 'sysAdmin'] },
-  { icon: BookOpen, label: "我的预约", path: "/my-reservations", roles: ['student', 'teacher', 'labAdmin', 'sysAdmin'] },
+  { icon: BookOpen, label: "我的预约", path: "/my-reservations", roles: ['student'] },
   { icon: Calendar, label: "日历调度", path: "/calendar", roles: ['student', 'teacher', 'labAdmin', 'sysAdmin'] },
   { icon: User, label: "身份申请", path: "/account/role-request", roles: ['student', 'teacher', 'labAdmin', 'sysAdmin'] },
   
@@ -75,8 +74,8 @@ const menuItems = [
   { icon: QrCode, label: "课堂签到", path: "/student/checkin", roles: ['student'] },
   
   // 教师权限（可通过动态权限授予其他角色）
-  { icon: BookOpen, label: "课程管理", path: "/courses", roles: ['teacher', 'sysAdmin'], permission: 'course:manage' },
-  { icon: QrCode, label: "课堂签到", path: "/class-checkin", roles: ['teacher', 'sysAdmin'], permission: 'checkin:teacher' },
+  { icon: BookOpen, label: "课程管理", path: "/courses", roles: ['teacher'] },
+  { icon: QrCode, label: "课堂签到", path: "/class-checkin", roles: ['teacher'] },
   { icon: LayoutGrid, label: "实验室课表", path: "/schedule-board", roles: ['teacher', 'labAdmin', 'sysAdmin'] },
   
   // 实验室管理员 + 系统管理员（可通过动态权限授予教师）

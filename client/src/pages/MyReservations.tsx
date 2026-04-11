@@ -93,6 +93,19 @@ export default function MyReservations() {
     );
   }
 
+  if (user?.role !== 'student') {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Card className="w-96">
+          <CardHeader>
+            <CardTitle>权限不足</CardTitle>
+            <CardDescription>个人预约仅面向学生，请使用课程预约相关功能</CardDescription>
+          </CardHeader>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="bg-gray-50">
       {/* 主内容 */}

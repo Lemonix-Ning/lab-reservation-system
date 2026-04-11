@@ -46,6 +46,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { toast } from 'sonner';
 
 interface CalendarEvent {
   id: number;
@@ -104,8 +105,6 @@ export default function CalendarPage() {
     selectedEvent ? { reservationId: selectedEvent.id } : skipToken
   );
 
-  const [shouldFetchSuggestions, setShouldFetchSuggestions] = useState(false);
-
   // 获取冲突建议（当选中的事件有冲突时）
   const { data: conflictSuggestions, isLoading: suggestionsLoading, refetch: refetchSuggestions } = trpc.calendar.getConflictSuggestions.useQuery(
     selectedEvent && reservationDetails ? {
@@ -115,7 +114,7 @@ export default function CalendarPage() {
       excludeReservationId: selectedEvent.id ?? 0,
     } : skipToken,
     {
-      enabled: shouldFetchSuggestions && !!selectedEvent && !!reservationDetails,
+      enabled: false,
     }
   );
 
@@ -304,13 +303,33 @@ export default function CalendarPage() {
 
   const handleEventClick = (event: CalendarEvent) => {
     setSelectedEvent(event);
-    setShouldFetchSuggestions(false); // 重置建议获取状态
+    setAlternativeSlots([]); // 切换事件时清空上一次的建议
   };
 
   const handleConflictCheck = async () => {
-    // 触发获取替代方案
-    if (reservationDetails) {
-      setShouldFetchSuggestions(true);
+    // 显式拉取替代方案，避免按钮点击后无感知
+    if (!selectedEvent) return;
+
+    let details = reservationDetails;
+    if (!details) {
+      const detailsResult = await refetchDetails();
+      details = detailsResult.data;
+    }
+
+    if (!details) {
+      toast.warning('预约详情仍在加载，请稍后重试');
+      return;
+    }
+
+    try {
+      const result = await refetchSuggestions();
+      const slots = result.data || [];
+      if (!slots.length) {
+        setAlternativeSlots([]);
+        toast.info('当前未找到可用的建议方案，请尝试调整筛选条件或时间段');
+      }
+    } catch (error: any) {
+      toast.error('获取建议方案失败：' + (error.message || '未知错误'));
     }
   };
 
@@ -325,7 +344,7 @@ export default function CalendarPage() {
         queryClient.invalidateQueries({ queryKey: ['reservation'], exact: false }),
       ]);
     } catch (error: any) {
-      alert('操作失败：' + (error.message || '未知错误'));
+      toast.error('操作失败：' + (error.message || '未知错误'));
     }
   };
 
@@ -342,7 +361,7 @@ export default function CalendarPage() {
         queryClient.invalidateQueries({ queryKey: ['reservation'], exact: false }),
       ]);
     } catch (error: any) {
-      alert('操作失败：' + (error.message || '未知错误'));
+      toast.error('操作失败：' + (error.message || '未知错误'));
     }
   };
 
@@ -358,14 +377,14 @@ export default function CalendarPage() {
         queryClient.invalidateQueries({ queryKey: ['reservation'], exact: false }),
       ]);
     } catch (error: any) {
-      alert('操作失败：' + (error.message || '未知错误'));
+      toast.error('操作失败：' + (error.message || '未知错误'));
     }
   };
 
   // 导出为 HTML 格式（可直接查看）
   const handleExportCalendar = (exportFormat: 'html' | 'ics' | 'pdf' = 'ics') => {
     if (events.length === 0) {
-      alert('当前没有可导出的预约事件');
+      toast.info('当前没有可导出的预约事件');
       return;
     }
 
@@ -436,9 +455,9 @@ export default function CalendarPage() {
       });
       
       if (result.needsReApproval) {
-        alert('预约时间已更新，状态已改为待审核，请等待管理员审批。' + (bypassAdvanceRule ? '\n\n已使用管理员权限绕过提前预约规则。' : ''));
+        toast.success('预约时间已更新，状态已改为待审核，请等待管理员审批。' + (bypassAdvanceRule ? '（已使用管理员权限绕过提前预约规则）' : ''));
       } else {
-        alert('预约时间已更新成功！');
+        toast.success('预约时间已更新成功');
       }
       
       setSelectedEvent(null);
@@ -448,7 +467,7 @@ export default function CalendarPage() {
         queryClient.invalidateQueries({ queryKey: ['reservation'], exact: false }),
       ]);
     } catch (error: any) {
-      alert('更新失败：' + (error.message || '未知错误'));
+      toast.error('更新失败：' + (error.message || '未知错误'));
     }
   };
 

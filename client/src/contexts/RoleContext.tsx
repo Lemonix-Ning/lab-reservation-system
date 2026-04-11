@@ -17,6 +17,7 @@ const RoleContext = createContext<RoleContextType | undefined>(undefined);
 
 export function RoleProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
+  const canUseDevRoleOverride = import.meta.env.DEV && user?.role === 'sysAdmin';
   
   // 从 localStorage 恢复 devRole
   const [devRole, setDevRole] = useState<UserRole | null>(() => {
@@ -43,7 +44,7 @@ export function RoleProvider({ children }: { children: ReactNode }) {
   };
   
   const userRole = normalizeRole(user?.role);
-  const currentRole = devRole || userRole;
+  const currentRole = canUseDevRoleOverride && devRole ? devRole : userRole;
   
   const isSysAdmin = currentRole === 'sysAdmin';
   const isLabAdmin = currentRole === 'labAdmin';

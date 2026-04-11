@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Github, MessageCircle, School } from "lucide-react";
+import { toast } from "sonner";
 
 type OAuthProvider = "github" | "qq" | "school";
 
@@ -85,11 +86,11 @@ export default function Login() {
       if (response.ok) {
         window.location.href = '/';
       } else {
-        alert('登录失败，请确保演示账号已创建（运行: pnpm seed:demo）');
+        toast.error('登录失败，请确保演示账号已创建（运行: pnpm seed:demo）');
       }
     } catch (error) {
       console.error('登录失败:', error);
-      alert('登录失败');
+      toast.error('登录失败');
     }
   };
 
