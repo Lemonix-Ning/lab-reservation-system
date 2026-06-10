@@ -22,7 +22,9 @@
 - 许可证
 
 ## 文档导航
+- 🌐 **[在线演示](https://lemonix-ning.github.io/lab-reservation-system/)** - GitHub Pages 静态部署（UI 预览）
 - 部署与运维：[DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md)
+- GitHub Pages：[docs/GITHUB_PAGES_SETUP.md](docs/GITHUB_PAGES_SETUP.md)
 - OAuth 配置：[docs/OAUTH_SETUP.md](docs/OAUTH_SETUP.md)
 - 数据库结构：[docs/DB_SCHEMA.md](docs/DB_SCHEMA.md)
 - 签到方式说明：[docs/CHECKIN_METHODS.md](docs/CHECKIN_METHODS.md)
@@ -165,31 +167,25 @@ XFYUN_MODEL="4.0Ultra"         # lite | generalv3 | generalv3.5 | 4.0Ultra
 - 开发环境可只使用 Manus Mock OAuth
 
 ## 快速开始
-1. 安装依赖
-   ```bash
-   pnpm install
-   ```
-2. 初始化数据库（生成与迁移）
-   ```bash
-   pnpm db:push
-   ```
-3. 启动开发
-   - 方式A：单进程集成（推荐）
-     ```bash
-     pnpm dev
-     # 控制台显示 Server running on http://localhost:<port>/
-     ```
-     打开浏览器访问后端输出的地址（默认 3000，若占用将顺延）。
-   - 方式B：前后端分离（用于前端独立调试）
-     ```bash
-     pnpm dev          # 后端（3000）
-     pnpm client:dev   # 前端（5173），通过代理访问后端
-     ```
-4. 可选：启动本地 Mock OAuth
-   ```bash
-   pnpm mock:oauth
-   ```
-   登录流程将通过后端的 `/api/oauth/authorize` 代理到 Mock 服务。
+
+### 最快上手（5分钟）
+
+```bash
+git clone https://github.com/Lemonix-Ning/lab-reservation-system.git
+cd lab-reservation-system
+pnpm install
+pnpm dev    # 一条命令启动完整系统
+```
+
+打开浏览器访问 `http://localhost:3000` ✨
+
+### 详细指南
+
+完整的本地开发、GitHub Pages 部署、环境配置等说明，请阅读：
+
+- 📖 **[快速启动指南](docs/QUICK_START.md)** - 包括 5 分钟上手、开发命令、GitHub Pages 部署步骤
+- 🌐 **[GitHub Pages 配置](docs/GITHUB_PAGES_SETUP.md)** - 前端静态站点部署到 GitHub Pages
+- 🔧 **[完整部署指南](DEPLOYMENT_GUIDE.md)** - 生产环境、服务器部署、SSL 证书等
 
 ## 认证与权限
 - **多 OAuth 登录支持**（P3-1 新增）
