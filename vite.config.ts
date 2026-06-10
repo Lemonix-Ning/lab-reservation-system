@@ -6,7 +6,16 @@ import { defineConfig } from "vite";
 
 const plugins = [react(), tailwindcss()];
 
+// Determine base path based on environment
+const getBase = () => {
+  if (process.env.NODE_ENV === "production" && process.env.GITHUB_PAGES === "true") {
+    return "/lab-reservation-system/";
+  }
+  return "/";
+};
+
 export default defineConfig({
+  base: getBase(),
   plugins,
   resolve: {
     alias: {
