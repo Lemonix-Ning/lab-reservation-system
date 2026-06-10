@@ -6,8 +6,10 @@
 
 进入 GitHub 仓库设置：
 1. **Repository Settings** → **Pages**
-2. **Source** 选择 `GitHub Actions`
-3. 保存配置
+2. **Source** 选择 `Deploy from a branch`
+3. **Branch** 选择 `gh-pages`（工作流自动创建）
+4. 选择 `/root` 文件夹
+5. 保存配置
 
 ### 2. 自动部署
 
@@ -19,7 +21,8 @@
 GitHub Actions 会：
 - 自动安装依赖（Node.js + pnpm）
 - 执行 `pnpm build:static` 生成静态前端资源
-- 将产物部署到 GitHub Pages
+- 将产物自动推送到 `gh-pages` 分支
+- GitHub Pages 自动从 `gh-pages` 分支部署
 
 ### 3. 访问你的站点
 
@@ -45,8 +48,9 @@ https://[your-username].github.io/lab-reservation-system/
 2. **环境设置**：Node.js 20 + pnpm 10
 3. **缓存优化**：pnpm 依赖缓存
 4. **依赖安装**：`pnpm install`
-5. **静态构建**：`pnpm build:static`
-6. **Pages部署**：自动上传至 GitHub Pages
+5. **静态构建**：`pnpm build:static` （带 GitHub Pages 基础路径配置）
+6. **部署**：自动推送到 `gh-pages` 分支
+7. **Pages 生效**：GitHub Pages 自动从 `gh-pages` 部署
 
 ---
 
@@ -54,7 +58,8 @@ https://[your-username].github.io/lab-reservation-system/
 
 ### Q: Pages 部署一直失败？
 A: 检查以下几点：
-- ✅ 仓库 **Settings → Pages** 已配置为 `GitHub Actions`
+- ✅ 仓库 **Settings → Pages** 已配置为 `Deploy from a branch`
+- ✅ **Branch** 选择 `gh-pages`，文件夹选择 `/root`
 - ✅ 工作流文件存在且语法正确
 - ✅ `pnpm-lock.yaml` 存在（确保依赖锁定）
 - ✅ 查看 Actions 选项卡的构建日志
@@ -73,7 +78,7 @@ on:
 ```
 
 ### Q: 如何禁用自动部署？
-A: 在 **Settings → Pages → Source** 改为 `None` 或删除工作流文件。
+A: 在 **Settings → Pages** 改为 `None` 或删除工作流文件。
 
 ---
 
